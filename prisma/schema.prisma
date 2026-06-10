@@ -1,13 +1,129 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  name         String?
+  profileImage String?
+
+  provider   AuthProvider @default(GOOGLE)
+  providerId String
+  role       UserRole     @default(STUDENT)
+
+  teacherProfile TeacherProfile?
+  bookings       Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerId])
+}
+
+model TeacherProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  headline   String?
+  bio        String?
+  hourlyRate Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  availabilityRules AvailabilityRule[]
+  availabilitySlots AvailabilitySlot[]
+  bookings          Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AvailabilityRule {
+  id        String @id @default(cuid())
+  teacherId String
+
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  timezone  String  @default("Asia/Seoul")
+  isActive  Boolean @default(true)
+
+  teacher TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  slots   AvailabilitySlot[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId, dayOfWeek])
+}
+
+model AvailabilitySlot {
+  id        String @id @default(cuid())
+  teacherId String
+  ruleId    String?
+
+  startAt DateTime
+  endAt   DateTime
+  status  AvailabilitySlotStatus @default(OPEN)
+
+  teacher TeacherProfile    @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  rule    AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  booking Booking?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, startAt])
+  @@index([teacherId, startAt])
+  @@index([ruleId])
+}
+
+model Booking {
+  id String @id @default(cuid())
+
+  studentId String
+  teacherId String
+  slotId    String @unique
+
+  status BookingStatus @default(PENDING)
+
+  student User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  teacher TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  slot    AvailabilitySlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([teacherId])
+}
+
+enum AuthProvider {
+  GOOGLE
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum AvailabilitySlotStatus {
+  OPEN
+  HELD
+  BOOKED
+  BLOCKED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
 }
