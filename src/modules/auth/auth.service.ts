@@ -90,4 +90,24 @@ export class AuthService {
       throw new UnauthorizedException('Invalid Google token');
     }
   }
+
+  async getMe(currentUser: { userId: string; role: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        profileImage: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    return { user };
+  }
 }
