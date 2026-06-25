@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './database/prisma/prisma.module';
-import { HealthModule } from './module/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
+import { TeachersModule } from './modules/teachers/teachers.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -12,8 +13,9 @@ import { ConfigModule } from '@nestjs/config';
       isGlobal: true,
     }),
     PrismaModule,
-    HealthModule,
     AuthModule,
+    TeachersModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

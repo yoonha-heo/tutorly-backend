@@ -18,7 +18,6 @@ model User {
   role       UserRole     @default(STUDENT)
 
   teacherProfile TeacherProfile?
-  bookings       Booking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -33,75 +32,50 @@ model TeacherProfile {
   headline   String?
   bio        String?
   hourlyRate Int?
+  status     TeacherStatus @default(PENDING)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  availabilityRules AvailabilityRule[]
-  availabilitySlots AvailabilitySlot[]
-  bookings          Booking[]
+  teacherLanguages   TeacherLanguage[]
+  teacherSpecialties TeacherSpecialty[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model AvailabilityRule {
-  id        String @id @default(cuid())
-  teacherId String
+model Language {
+  id   String @id @default(cuid())
+  code String @unique
+  name String @unique
 
-  dayOfWeek Int
-  startTime String
-  endTime   String
-  timezone  String  @default("Asia/Seoul")
-  isActive  Boolean @default(true)
-
-  teacher TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  slots   AvailabilitySlot[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([teacherId, dayOfWeek])
+  teacherLanguages TeacherLanguage[]
 }
 
-model AvailabilitySlot {
-  id        String @id @default(cuid())
-  teacherId String
-  ruleId    String?
+model TeacherLanguage {
+  teacherId  String
+  languageId String
 
-  startAt DateTime
-  endAt   DateTime
-  status  AvailabilitySlotStatus @default(OPEN)
+  teacher  TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  language Language       @relation(fields: [languageId], references: [id], onDelete: Cascade)
 
-  teacher TeacherProfile    @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  rule    AvailabilityRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  booking Booking?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([teacherId, startAt])
-  @@index([teacherId, startAt])
-  @@index([ruleId])
+  @@id([teacherId, languageId])
 }
 
-model Booking {
-  id String @id @default(cuid())
+model Specialty {
+  id   String @id @default(cuid())
+  name String @unique
 
-  studentId String
-  teacherId String
-  slotId    String @unique
+  teacherSpecialties TeacherSpecialty[]
+}
 
-  status BookingStatus @default(PENDING)
+model TeacherSpecialty {
+  teacherId   String
+  specialtyId String
 
-  student User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  teacher TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  slot    AvailabilitySlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  specialty Specialty      @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([studentId])
-  @@index([teacherId])
+  @@id([teacherId, specialtyId])
 }
 
 enum AuthProvider {
@@ -114,16 +88,8 @@ enum UserRole {
   ADMIN
 }
 
-enum AvailabilitySlotStatus {
-  OPEN
-  HELD
-  BOOKED
-  BLOCKED
-}
-
-enum BookingStatus {
+enum TeacherStatus {
   PENDING
-  CONFIRMED
-  CANCELLED
-  COMPLETED
+  APPROVED
+  REJECTED
 }

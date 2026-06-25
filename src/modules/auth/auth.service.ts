@@ -41,6 +41,7 @@ export class AuthService {
         profileImage: googleUser.profileImage,
         provider: AuthProvider.GOOGLE,
         providerId: googleUser.providerId,
+        role: dto.role,
       },
     });
 
