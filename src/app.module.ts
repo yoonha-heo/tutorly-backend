@@ -6,6 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { TeachersModule } from './modules/teachers/teachers.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AdminModule } from './modules/admin/admin.module';
     AuthModule,
     TeachersModule,
     AdminModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
