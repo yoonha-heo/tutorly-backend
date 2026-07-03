@@ -19,7 +19,7 @@ import { SearchTeachersQueryDto } from './dto/search-teachers-query.dto';
 export class TeachersController {
   constructor(private readonly teachersService: TeachersService) {}
 
-  @Post('me/profile')
+  @Post('profile')
   @UseGuards(JwtAuthGuard)
   createTeacherProfile(@Req() req: Request, @Body() dto: TeacherProfileDto) {
     const user = req.user as { userId: string; role: string };
@@ -27,7 +27,7 @@ export class TeachersController {
     return this.teachersService.createTeacherProfile(user.userId, dto);
   }
 
-  @Patch('me/profile')
+  @Patch('profile')
   @UseGuards(JwtAuthGuard)
   updateTeacherProfile(@Req() req: Request, @Body() dto: TeacherProfileDto) {
     const user = req.user as { userId: string; role: string };

@@ -7,12 +7,15 @@ export class TeacherProfileDto {
   @IsString()
   bio: string;
 
+  @IsString()
+  profileImageUrl: string;
+
   @IsInt()
   hourlyRate: number;
 
   @IsArray()
-  languageIds: string[];
+  languages: string[];
 
   @IsArray()
-  specialtyIds: string[];
+  specialties: string[];
 }

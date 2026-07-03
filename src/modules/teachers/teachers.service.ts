@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -26,14 +27,39 @@ export class TeachersService {
         throw new NotFoundException('Teacher profile not found');
       }
 
+      const languages = await tx.language.findMany({
+        where: {
+          name: {
+            in: dto.languages,
+          },
+        },
+      });
+
+      const specialties = await tx.specialty.findMany({
+        where: {
+          name: {
+            in: dto.specialties,
+          },
+        },
+      });
+
+      if (languages.length !== dto.languages.length) {
+        throw new BadRequestException('Invalid languages');
+      }
+
+      if (specialties.length !== dto.specialties.length) {
+        throw new BadRequestException('Invalid specialties');
+      }
+
       const currentLanguageIds = profile.teacherLanguages.map(
         (item) => item.languageId,
       );
-      const nextLanguageIds = dto.languageIds;
+      const nextLanguageIds = languages.map((language) => language.id);
 
       const languageIdsToDelete = currentLanguageIds.filter(
         (id) => !nextLanguageIds.includes(id),
       );
+
       const languageIdsToCreate = nextLanguageIds.filter(
         (id) => !currentLanguageIds.includes(id),
       );
@@ -41,11 +67,12 @@ export class TeachersService {
       const currentSpecialtyIds = profile.teacherSpecialties.map(
         (item) => item.specialtyId,
       );
-      const nextSpecialtyIds = dto.specialtyIds;
+      const nextSpecialtyIds = specialties.map((specialty) => specialty.id);
 
       const specialtyIdsToDelete = currentSpecialtyIds.filter(
         (id) => !nextSpecialtyIds.includes(id),
       );
+
       const specialtyIdsToCreate = nextSpecialtyIds.filter(
         (id) => !currentSpecialtyIds.includes(id),
       );
@@ -55,6 +82,7 @@ export class TeachersService {
         data: {
           headline: dto.headline,
           bio: dto.bio,
+          profileImageUrl: dto.profileImageUrl,
           hourlyRate: dto.hourlyRate,
         },
       });
@@ -100,41 +128,66 @@ export class TeachersService {
   }
 
   async createTeacherProfile(userId: string, dto: TeacherProfileDto) {
-    const existingProfile = await this.prisma.teacherProfile.findUnique({
-      where: {
-        userId,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const existingProfile = await tx.teacherProfile.findUnique({
+        where: { userId },
+      });
+
+      if (existingProfile) {
+        throw new ConflictException('Teacher profile already exists');
+      }
+
+      const languages = await tx.language.findMany({
+        where: {
+          code: {
+            in: dto.languages,
+          },
+        },
+      });
+
+      const specialties = await tx.specialty.findMany({
+        where: {
+          code: {
+            in: dto.specialties,
+          },
+        },
+      });
+
+      if (languages.length !== dto.languages.length) {
+        throw new BadRequestException('Invalid languages');
+      }
+
+      if (specialties.length !== dto.specialties.length) {
+        throw new BadRequestException('Invalid specialties');
+      }
+
+      const profile = await tx.teacherProfile.create({
+        data: {
+          userId,
+          headline: dto.headline,
+          bio: dto.bio,
+          hourlyRate: dto.hourlyRate,
+          profileImageUrl: dto.profileImageUrl,
+          status: TeacherStatus.PENDING,
+        },
+      });
+
+      await tx.teacherLanguage.createMany({
+        data: languages.map((language) => ({
+          teacherId: profile.id,
+          languageId: language.id,
+        })),
+      });
+
+      await tx.teacherSpecialty.createMany({
+        data: specialties.map((specialty) => ({
+          teacherId: profile.id,
+          specialtyId: specialty.id,
+        })),
+      });
+
+      return profile;
     });
-
-    if (existingProfile) {
-      throw new ConflictException('Teacher profile already exist');
-    }
-
-    const profile = await this.prisma.teacherProfile.create({
-      data: {
-        userId,
-        headline: dto.headline,
-        bio: dto.bio,
-        hourlyRate: dto.hourlyRate,
-        status: TeacherStatus.PENDING,
-      },
-    });
-
-    await this.prisma.teacherLanguage.createMany({
-      data: dto.languageIds.map((languageId) => ({
-        teacherId: profile.id,
-        languageId,
-      })),
-    });
-
-    await this.prisma.teacherSpecialty.createMany({
-      data: dto.specialtyIds.map((specialtyId) => ({
-        teacherId: profile.id,
-        specialtyId,
-      })),
-    });
-
-    return profile;
   }
 
   async searchTeachers(query: SearchTeachersQueryDto) {

@@ -16,9 +16,9 @@ async function main() {
   // Specialty
   await prisma.specialty.createMany({
     data: [
-      { name: 'Conversation' },
-      { name: 'Business English' },
-      { name: 'IELTS' },
+      { code: 'conversation', name: 'Conversation' },
+      { code: 'business', name: 'Business' },
+      { code: 'ielts', name: 'IELTS' },
     ],
     skipDuplicates: true,
   });
