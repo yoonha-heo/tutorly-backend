@@ -43,6 +43,14 @@ export class AuthService {
         providerId: googleUser.providerId,
         role: dto.role,
       },
+      include: {
+        teacherProfile: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
     });
 
     const accessToken = await this.jwtService.signAsync(
@@ -64,6 +72,7 @@ export class AuthService {
         name: user.name,
         profileImage: user.profileImage,
         role: user.role,
+        teacherProfile: user.teacherProfile,
       },
     };
   }
@@ -101,7 +110,12 @@ export class AuthService {
         name: true,
         profileImage: true,
         role: true,
-        createdAt: true,
+        teacherProfile: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
       },
     });
 
