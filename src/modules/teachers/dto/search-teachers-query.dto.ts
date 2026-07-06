@@ -8,4 +8,8 @@ export class SearchTeachersQueryDto {
   @IsOptional()
   @IsString()
   specialty?: string;
+
+  @IsOptional()
+  @IsString()
+  keyword?: string;
 }

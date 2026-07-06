@@ -194,6 +194,16 @@ export class TeachersService {
     return this.prisma.teacherProfile.findMany({
       where: {
         status: 'APPROVED',
+
+        ...(query.keyword && {
+          OR: [
+            { headline: { contains: query.keyword, mode: 'insensitive' } },
+            {
+              user: { name: { contains: query.keyword, mode: 'insensitive' } },
+            },
+          ],
+        }),
+
         ...(query.language && {
           teacherLanguages: {
             some: {
@@ -203,11 +213,12 @@ export class TeachersService {
             },
           },
         }),
+
         ...(query.specialty && {
           teacherSpecialties: {
             some: {
               specialty: {
-                name: query.specialty,
+                code: query.specialty,
               },
             },
           },
