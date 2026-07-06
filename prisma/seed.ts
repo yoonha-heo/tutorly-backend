@@ -2,116 +2,156 @@ import { PrismaClient, TeacherStatus, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const languages = [
+  { code: 'en', name: 'English' },
+  { code: 'ko', name: 'Korean' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'zh', name: 'Chinese' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+];
+
+const specialties = [
+  { code: 'conversation', name: 'Conversation' },
+  { code: 'business', name: 'Business' },
+  { code: 'ielts', name: 'IELTS' },
+  { code: 'grammar', name: 'Grammar' },
+  { code: 'kids', name: 'Kids' },
+  { code: 'test-prep', name: 'Test Prep' },
+];
+
+const teacherHeadlines = [
+  'Conversation Coach',
+  'Business Language Tutor',
+  'Exam Preparation Specialist',
+  'Grammar and Writing Mentor',
+  'Kids Language Teacher',
+  'Beginner Friendly Tutor',
+  'Pronunciation Trainer',
+  'Interview Practice Coach',
+  'Academic Writing Tutor',
+  'Travel Language Guide',
+];
+
 async function main() {
-  // Language
   await prisma.language.createMany({
-    data: [
-      { code: 'en', name: 'English' },
-      { code: 'ko', name: 'Korean' },
-      { code: 'ja', name: 'Japanese' },
-    ],
+    data: languages,
     skipDuplicates: true,
   });
 
-  // Specialty
   await prisma.specialty.createMany({
-    data: [
-      { code: 'conversation', name: 'Conversation' },
-      { code: 'business', name: 'Business' },
-      { code: 'ielts', name: 'IELTS' },
-    ],
+    data: specialties,
     skipDuplicates: true,
   });
 
-  const english = await prisma.language.findUnique({
-    where: { code: 'en' },
-  });
-
-  const korean = await prisma.language.findUnique({
-    where: { code: 'ko' },
-  });
-
-  const conversation = await prisma.specialty.findUnique({
-    where: { name: 'Conversation' },
-  });
-
-  const ielts = await prisma.specialty.findUnique({
-    where: { name: 'IELTS' },
-  });
-
-  // Teacher User 1
-  const teacher1 = await prisma.user.create({
-    data: {
-      email: 'teacher1@test.com',
-      name: 'John Doe',
-      providerId: 'teacher-1',
-      role: UserRole.TEACHER,
+  const savedLanguages = await prisma.language.findMany({
+    where: {
+      code: {
+        in: languages.map((language) => language.code),
+      },
+    },
+    orderBy: {
+      code: 'asc',
     },
   });
 
-  const profile1 = await prisma.teacherProfile.create({
-    data: {
-      userId: teacher1.id,
-      headline: 'English Conversation Tutor',
-      bio: '10 years of teaching experience',
-      hourlyRate: 30,
-      status: TeacherStatus.APPROVED,
+  const savedSpecialties = await prisma.specialty.findMany({
+    where: {
+      code: {
+        in: specialties.map((specialty) => specialty.code),
+      },
+    },
+    orderBy: {
+      code: 'asc',
     },
   });
 
-  // Teacher User 2
-  const teacher2 = await prisma.user.create({
-    data: {
-      email: 'teacher2@test.com',
-      name: 'Jane Smith',
-      providerId: 'teacher-2',
-      role: UserRole.TEACHER,
-    },
-  });
+  const users = await Promise.all(
+    Array.from({ length: 100 }, async (_, index) => {
+      const number = index + 1;
+      const paddedNumber = String(number).padStart(3, '0');
+      const isTeacher = number <= 70;
 
-  const profile2 = await prisma.teacherProfile.create({
-    data: {
-      userId: teacher2.id,
-      headline: 'IELTS Specialist',
-      bio: 'Helped 300+ students',
-      hourlyRate: 40,
-      status: TeacherStatus.APPROVED,
-    },
-  });
+      return prisma.user.upsert({
+        where: {
+          email: `user${paddedNumber}@test.com`,
+        },
+        update: {
+          name: isTeacher
+            ? `Teacher ${paddedNumber}`
+            : `Student ${paddedNumber}`,
+          role: isTeacher ? UserRole.TEACHER : UserRole.STUDENT,
+        },
+        create: {
+          email: `user${paddedNumber}@test.com`,
+          name: isTeacher
+            ? `Teacher ${paddedNumber}`
+            : `Student ${paddedNumber}`,
+          providerId: `seed-user-${paddedNumber}`,
+          role: isTeacher ? UserRole.TEACHER : UserRole.STUDENT,
+        },
+      });
+    }),
+  );
 
-  // Teacher Languages
+  const teacherProfiles = await Promise.all(
+    users.slice(0, 70).map((user, index) => {
+      const headline = teacherHeadlines[index % teacherHeadlines.length];
+
+      return prisma.teacherProfile.upsert({
+        where: {
+          userId: user.id,
+        },
+        update: {
+          headline,
+          bio: `${headline} with ${index + 3} years of teaching experience.`,
+          hourlyRate: 20 + (index % 9) * 5,
+          status: TeacherStatus.APPROVED,
+        },
+        create: {
+          userId: user.id,
+          headline,
+          bio: `${headline} with ${index + 3} years of teaching experience.`,
+          hourlyRate: 20 + (index % 9) * 5,
+          status: TeacherStatus.APPROVED,
+        },
+      });
+    }),
+  );
+
   await prisma.teacherLanguage.createMany({
-    data: [
-      {
-        teacherId: profile1.id,
-        languageId: english!.id,
-      },
-      {
-        teacherId: profile1.id,
-        languageId: korean!.id,
-      },
-      {
-        teacherId: profile2.id,
-        languageId: english!.id,
-      },
-    ],
+    data: teacherProfiles.flatMap((teacherProfile, index) => {
+      const firstLanguage = savedLanguages[index % savedLanguages.length];
+      const secondLanguage = savedLanguages[(index + 1) % savedLanguages.length];
+      const thirdLanguage = savedLanguages[(index + 2) % savedLanguages.length];
+
+      return [firstLanguage, secondLanguage, thirdLanguage].map((language) => ({
+        teacherId: teacherProfile.id,
+        languageId: language.id,
+      }));
+    }),
+    skipDuplicates: true,
   });
 
-  // Teacher Specialties
   await prisma.teacherSpecialty.createMany({
-    data: [
-      {
-        teacherId: profile1.id,
-        specialtyId: conversation!.id,
-      },
-      {
-        teacherId: profile2.id,
-        specialtyId: ielts!.id,
-      },
-    ],
+    data: teacherProfiles.flatMap((teacherProfile, index) => {
+      const firstSpecialty = savedSpecialties[index % savedSpecialties.length];
+      const secondSpecialty =
+        savedSpecialties[(index + 2) % savedSpecialties.length];
+      const thirdSpecialty =
+        savedSpecialties[(index + 4) % savedSpecialties.length];
+
+      return [firstSpecialty, secondSpecialty, thirdSpecialty].map(
+        (specialty) => ({
+          teacherId: teacherProfile.id,
+          specialtyId: specialty.id,
+        }),
+      );
+    }),
+    skipDuplicates: true,
   });
 
-  console.log('🌱 Seed completed');
+  console.log('Seed completed');
 }
 
 main()

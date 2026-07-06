@@ -191,49 +191,76 @@ export class TeachersService {
   }
 
   async searchTeachers(query: SearchTeachersQueryDto) {
-    return this.prisma.teacherProfile.findMany({
-      where: {
-        status: 'APPROVED',
+    const page = Number(query.page ?? 1);
+    const limit = Number(query.limit ?? 6);
+    const skip = (page - 1) * limit;
 
-        ...(query.keyword && {
-          OR: [
-            { headline: { contains: query.keyword, mode: 'insensitive' } },
-            {
-              user: { name: { contains: query.keyword, mode: 'insensitive' } },
-            },
-          ],
-        }),
+    const where = {
+      status: 'APPROVED' as const,
 
-        ...(query.language && {
-          teacherLanguages: {
-            some: {
-              language: {
-                code: query.language,
-              },
+      ...(query.keyword && {
+        OR: [
+          {
+            headline: { contains: query.keyword, mode: 'insensitive' as const },
+          },
+          {
+            user: {
+              name: { contains: query.keyword, mode: 'insensitive' as const },
             },
           },
-        }),
+        ],
+      }),
 
-        ...(query.specialty && {
-          teacherSpecialties: {
-            some: {
-              specialty: {
-                code: query.specialty,
-              },
-            },
-          },
-        }),
-      },
-      include: {
-        user: true,
+      ...(query.language && {
         teacherLanguages: {
-          include: { language: true },
+          some: {
+            language: {
+              code: query.language,
+            },
+          },
         },
+      }),
+
+      ...(query.specialty && {
         teacherSpecialties: {
-          include: { specialty: true },
+          some: {
+            specialty: {
+              code: query.specialty,
+            },
+          },
         },
-      },
-    });
+      }),
+    };
+
+    const [items, totalCount] = await this.prisma.$transaction([
+      this.prisma.teacherProfile.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: true,
+          teacherLanguages: {
+            include: { language: true },
+          },
+          teacherSpecialties: {
+            include: { specialty: true },
+          },
+        },
+      }),
+
+      this.prisma.teacherProfile.count({ where }),
+    ]);
+
+    const hasNextPage = page * limit < totalCount;
+
+    return {
+      items,
+      page,
+      limit,
+      totalCount,
+      hasNextPage,
+      nextPage: hasNextPage ? page + 1 : null,
+    };
   }
 
   async getAvailableLanguages() {
