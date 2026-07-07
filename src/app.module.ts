@@ -6,7 +6,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { TeachersModule } from './modules/teachers/teachers.module';
 import { AdminModule } from './modules/admin/admin.module';
-import { UploadsModule } from './uploads/uploads.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
