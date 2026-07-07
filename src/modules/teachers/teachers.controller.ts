@@ -5,15 +5,15 @@ import {
   Patch,
   Param,
   UseGuards,
-  Req,
   Body,
   Query,
 } from '@nestjs/common';
 import { TeachersService } from './teachers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TeacherProfileDto } from './dto/teacher-profile.dto';
-import type { Request } from 'express';
 import { SearchTeachersQueryDto } from './dto/search-teachers-query.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { JwtPayload } from '../auth/types/jwt-payload.type';
 
 @Controller('teachers')
 export class TeachersController {
@@ -21,17 +21,19 @@ export class TeachersController {
 
   @Post('profile')
   @UseGuards(JwtAuthGuard)
-  createTeacherProfile(@Req() req: Request, @Body() dto: TeacherProfileDto) {
-    const user = req.user as { userId: string; role: string };
-
+  createTeacherProfile(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: TeacherProfileDto,
+  ) {
     return this.teachersService.createTeacherProfile(user.userId, dto);
   }
 
   @Patch('profile')
   @UseGuards(JwtAuthGuard)
-  updateTeacherProfile(@Req() req: Request, @Body() dto: TeacherProfileDto) {
-    const user = req.user as { userId: string; role: string };
-
+  updateTeacherProfile(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: TeacherProfileDto,
+  ) {
     return this.teachersService.updateTeacherProfile(user.userId, dto);
   }
 

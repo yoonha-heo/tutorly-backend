@@ -5,6 +5,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { AuthProvider } from '@prisma/client';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { JwtPayload } from './types/jwt-payload.type';
 
 @Injectable()
 export class AuthService {
@@ -101,7 +102,7 @@ export class AuthService {
     }
   }
 
-  async getMe(currentUser: { userId: string; role: string }) {
+  async getMe(currentUser: JwtPayload) {
     const user = await this.prisma.user.findUnique({
       where: { id: currentUser.userId },
       select: {
