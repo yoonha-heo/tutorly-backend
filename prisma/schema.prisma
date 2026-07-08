@@ -8,8 +8,8 @@ datasource db {
 }
 
 model User {
-  id           String @id @default(cuid())
-  email        String @unique
+  id           String  @id @default(cuid())
+  email        String  @unique
   name         String?
   profileImage String?
 
@@ -18,6 +18,8 @@ model User {
   role       UserRole     @default(STUDENT)
 
   teacherProfile TeacherProfile?
+
+  studentBookings Booking[] @relation("StudentBookings")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -29,16 +31,19 @@ model TeacherProfile {
   id     String @id @default(cuid())
   userId String @unique
 
-  headline   String?
-  bio        String?
+  headline        String?
+  bio             String?
   profileImageUrl String?
-  hourlyRate Int?
-  status     TeacherStatus @default(PENDING)
+  hourlyRate      Int?
+  status          TeacherStatus @default(PENDING)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   teacherLanguages   TeacherLanguage[]
   teacherSpecialties TeacherSpecialty[]
+
+  availabilities  Availability[] @relation("TeacherAvailabilities")
+  teacherBookings Booking[]      @relation("TeacherBookings")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,7 +67,6 @@ model TeacherLanguage {
   @@id([teacherId, languageId])
 }
 
-
 model Specialty {
   id   String @id @default(cuid())
   code String @unique
@@ -81,6 +85,57 @@ model TeacherSpecialty {
   @@id([teacherId, specialtyId])
 }
 
+model Availability {
+  id String @id @default(cuid())
+
+  teacherId String
+  teacher   TeacherProfile @relation("TeacherAvailabilities", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  startAt DateTime
+  endAt   DateTime
+  isOpen  Boolean  @default(false)
+
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, startAt])
+  @@index([teacherId, isOpen, startAt])
+  @@index([startAt])
+}
+
+model Booking {
+  id String @id @default(cuid())
+
+  teacherId String
+  teacher   TeacherProfile @relation("TeacherBookings", fields: [teacherId], references: [id])
+
+  studentId String
+  student   User   @relation("StudentBookings", fields: [studentId], references: [id])
+
+  availabilityId String
+  availability   Availability @relation(fields: [availabilityId], references: [id])
+
+  lessonStartAt DateTime
+  lessonEndAt   DateTime
+
+  status           BookingStatus @default(PENDING_PAYMENT)
+  paymentExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Availability로 예약 조회
+  @@index([availabilityId])
+  // Student My Bookings
+  @@index([studentId, lessonStartAt])
+  // Teacher Dashboard
+  @@index([teacherId, lessonStartAt])
+  // 만료 예약 정리
+  @@index([status, paymentExpiresAt])
+}
+
 enum AuthProvider {
   GOOGLE
 }
@@ -95,4 +150,11 @@ enum TeacherStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
 }
