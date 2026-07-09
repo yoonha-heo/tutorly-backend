@@ -9,9 +9,11 @@ import { AdminModule } from './modules/admin/admin.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { AvailabilitiesModule } from './modules/availabilities/availabilities.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),

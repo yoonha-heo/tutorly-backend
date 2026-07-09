@@ -31,6 +31,8 @@ model TeacherProfile {
   id     String @id @default(cuid())
   userId String @unique
 
+  timezone String @default("Asia/Seoul")
+
   headline        String?
   bio             String?
   profileImageUrl String?
