@@ -56,4 +56,9 @@ export class TeachersController {
   findTeacherById(@Param('id') id: string) {
     return this.teachersService.findTeacherById(id);
   }
+
+  @Get(':teacherId/availabilities')
+  getTeacherAvailabilities(@Param('teacherId') teacherId: string) {
+    return this.teachersService.getTeacherAvailabilities(teacherId);
+  }
 }

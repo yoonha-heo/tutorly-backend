@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma/prisma.service';
-import { TeacherStatus } from '@prisma/client';
+import { BookingStatus, TeacherStatus } from '@prisma/client';
 import { TeacherProfileDto } from './dto/teacher-profile.dto';
 import { SearchTeachersQueryDto } from './dto/search-teachers-query.dto';
 
@@ -305,5 +305,40 @@ export class TeachersService {
     }
 
     return teacher;
+  }
+
+  async getTeacherAvailabilities(teacherId: string) {
+    const teacher = await this.prisma.teacherProfile.findUnique({
+      where: {
+        id: teacherId,
+        status: 'APPROVED',
+      },
+    });
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher not found');
+    }
+
+    return this.prisma.availability.findMany({
+      where: {
+        teacherId,
+        isOpen: true,
+        startAt: {
+          gte: new Date(),
+        },
+        blocks: {
+          none: {
+            booking: {
+              status: {
+                in: [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED],
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        startAt: 'asc',
+      },
+    });
   }
 }
