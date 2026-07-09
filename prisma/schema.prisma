@@ -98,6 +98,7 @@ model Availability {
   isOpen  Boolean  @default(false)
 
   bookings Booking[]
+  blocks AvailabilityBlock[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -119,11 +120,14 @@ model Booking {
   availabilityId String
   availability   Availability @relation(fields: [availabilityId], references: [id])
 
+  lessonType    LessonType @default(STANDARD)
   lessonStartAt DateTime
   lessonEndAt   DateTime
 
   status           BookingStatus @default(PENDING_PAYMENT)
   paymentExpiresAt DateTime?
+
+  blocks AvailabilityBlock[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -136,6 +140,19 @@ model Booking {
   @@index([teacherId, lessonStartAt])
   // 만료 예약 정리
   @@index([status, paymentExpiresAt])
+}
+
+model AvailabilityBlock {
+  bookingId      String
+  availabilityId String
+
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  availability Availability @relation(fields: [availabilityId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([bookingId, availabilityId])
+  @@index([availabilityId])
 }
 
 enum AuthProvider {
@@ -152,6 +169,11 @@ enum TeacherStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum LessonType {
+  TRIAL
+  STANDARD
 }
 
 enum BookingStatus {
