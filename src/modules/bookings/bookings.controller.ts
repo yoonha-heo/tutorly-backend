@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -8,6 +8,12 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 @Controller('bookings')
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  getMyLessons(@CurrentUser() user: JwtPayload) {
+    return this.bookingsService.getMyLessons(user.userId);
+  }
 
   @Post()
   @UseGuards(JwtAuthGuard)

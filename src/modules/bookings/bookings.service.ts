@@ -17,6 +17,25 @@ import {
 export class BookingsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getMyLessons(userId: string) {
+    return this.prisma.booking.findMany({
+      where: { studentId: userId },
+      include: {
+        teacher: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async createBooking(studentId: string, dto: CreateBookingDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -51,6 +70,10 @@ export class BookingsService {
 
         if (!availability.isOpen) {
           throw new BadRequestException('Availability is not open');
+        }
+
+        if (availability.teacher.hourlyRate === null) {
+          throw new BadRequestException('Teacher hourly rate is not set');
         }
 
         if (availability.blocks.length > 0) {
@@ -90,7 +113,8 @@ export class BookingsService {
             studentId,
             lessonType: dto.lessonType,
             lessonStartAt: availability.startAt,
-            lessonEndAt: availability.endAt,
+            lessonEndAt,
+            price: availability.teacher.hourlyRate,
             status: BookingStatus.PENDING_PAYMENT,
             paymentExpiresAt: new Date(
               Date.now() + PAYMENT_EXPIRES_IN_MINUTES * 60 * 1000,

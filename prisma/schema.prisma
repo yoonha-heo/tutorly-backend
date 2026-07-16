@@ -98,7 +98,7 @@ model Availability {
   isOpen  Boolean  @default(false)
 
   bookings Booking[]
-  blocks AvailabilityBlock[]
+  blocks   AvailabilityBlock[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -123,6 +123,7 @@ model Booking {
   lessonType    LessonType @default(STANDARD)
   lessonStartAt DateTime
   lessonEndAt   DateTime
+  price         Int
 
   status           BookingStatus @default(PENDING_PAYMENT)
   paymentExpiresAt DateTime?
