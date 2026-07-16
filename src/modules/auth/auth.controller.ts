@@ -35,4 +35,18 @@ export class AuthController {
   getMe(@CurrentUser() user: JwtPayload) {
     return this.authService.getMe(user);
   }
+
+  @Post('logout')
+  logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    return {
+      success: true,
+    };
+  }
 }
