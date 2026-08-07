@@ -89,7 +89,7 @@ export class AvailabilityCronService {
         teacherId,
         startAt: fromZonedTime(startLocal, timezone),
         endAt: fromZonedTime(endLocal, timezone),
-        isOpen: false,
+        isOpen: true,
       });
     }
 
