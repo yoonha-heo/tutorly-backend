@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { AvailabilitiesService } from './availabilities.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/types/jwt-payload.type';
-import type { UpdateAvailabilityDto } from './dto/update-availability.dto.ts';
+import { UpdateAvailabilitiesDto } from './dto/update-availabilities.dto';
 
 @Controller('availabilities')
 @UseGuards(JwtAuthGuard)
@@ -15,16 +15,11 @@ export class AvailabilitiesController {
     return this.availabilitiesService.getMyAvailabilities(user.userId);
   }
 
-  @Patch(':id')
-  updateAvailability(
+  @Patch()
+  updateAvailabilities(
     @CurrentUser() user: JwtPayload,
-    @Param('id') availabilityId: string,
-    @Body() dto: UpdateAvailabilityDto,
+    @Body() dto: UpdateAvailabilitiesDto,
   ) {
-    return this.availabilitiesService.updateAvailabilityStatus(
-      user.userId,
-      availabilityId,
-      dto,
-    );
+    return this.availabilitiesService.updateAvailabilities(user.userId, dto);
   }
 }

@@ -4,8 +4,8 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { BookingStatus } from '@prisma/client';
+import { UpdateAvailabilitiesDto } from './dto/update-availabilities.dto';
 
 @Injectable()
 export class AvailabilitiesService {
@@ -46,11 +46,7 @@ export class AvailabilitiesService {
     });
   }
 
-  async updateAvailabilityStatus(
-    userId: string,
-    availabilityId: string,
-    dto: UpdateAvailabilityDto,
-  ) {
+  async updateAvailabilities(userId: string, dto: UpdateAvailabilitiesDto) {
     const teacherProfile = await this.prisma.teacherProfile.findUnique({
       where: { userId },
     });
@@ -59,9 +55,16 @@ export class AvailabilitiesService {
       throw new ForbiddenException('Teacher profile is required');
     }
 
-    const availability = await this.prisma.availability.findUnique({
+    const ids = dto.items.map((item) => item.id);
+    const uniqueIds = [...new Set(ids)];
+
+    if (uniqueIds.length !== ids.length) {
+      throw new BadRequestException('Duplicate availability ids');
+    }
+
+    const updatableAvailabilities = await this.prisma.availability.findMany({
       where: {
-        id: availabilityId,
+        id: { in: uniqueIds },
         teacherId: teacherProfile.id,
         blocks: {
           none: {
@@ -73,21 +76,47 @@ export class AvailabilitiesService {
           },
         },
       },
+      select: { id: true },
     });
 
-    if (!availability) {
+    if (updatableAvailabilities.length !== uniqueIds.length) {
       throw new BadRequestException(
-        'Availability not found, not yours, or already has booking',
+        'Some availabilities not found, not yours, or already have booking',
       );
     }
 
-    return this.prisma.availability.update({
-      where: {
-        id: availabilityId,
-      },
-      data: {
-        isOpen: dto.isOpen,
-      },
-    });
+    const openIds = dto.items
+      .filter((item) => item.isOpen)
+      .map((item) => item.id);
+    const closedIds = dto.items
+      .filter((item) => !item.isOpen)
+      .map((item) => item.id);
+
+    await this.prisma.$transaction([
+      ...(openIds.length > 0
+        ? [
+            this.prisma.availability.updateMany({
+              where: {
+                id: { in: openIds },
+                teacherId: teacherProfile.id,
+              },
+              data: { isOpen: true },
+            }),
+          ]
+        : []),
+      ...(closedIds.length > 0
+        ? [
+            this.prisma.availability.updateMany({
+              where: {
+                id: { in: closedIds },
+                teacherId: teacherProfile.id,
+              },
+              data: { isOpen: false },
+            }),
+          ]
+        : []),
+    ]);
+
+    return { updatedCount: uniqueIds.length };
   }
 }
