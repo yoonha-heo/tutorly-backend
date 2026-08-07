@@ -336,6 +336,11 @@ export class TeachersService {
           },
         },
       },
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+      },
       orderBy: {
         startAt: 'asc',
       },
