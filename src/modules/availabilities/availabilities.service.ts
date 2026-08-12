@@ -1,9 +1,6 @@
 import { PrismaService } from '@/database/prisma/prisma.service';
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { BusinessException } from '@/common/exceptions/business.exception';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { UpdateAvailabilitiesDto } from './dto/update-availabilities.dto';
 
@@ -19,7 +16,11 @@ export class AvailabilitiesService {
     });
 
     if (!teacherProfile) {
-      throw new ForbiddenException('Teacher profile is required');
+      throw new BusinessException(
+        'TEACHER_PROFILE_REQUIRED',
+        'Please create a teacher profile first.',
+        HttpStatus.FORBIDDEN,
+      );
     }
 
     return this.prisma.availability.findMany({
@@ -52,14 +53,23 @@ export class AvailabilitiesService {
     });
 
     if (!teacherProfile) {
-      throw new ForbiddenException('Teacher profile is required');
+      throw new BusinessException(
+        'TEACHER_PROFILE_REQUIRED',
+        'Please create a teacher profile first.',
+        HttpStatus.FORBIDDEN,
+      );
     }
 
     const ids = dto.items.map((item) => item.id);
     const uniqueIds = [...new Set(ids)];
 
     if (uniqueIds.length !== ids.length) {
-      throw new BadRequestException('Duplicate availability ids');
+      throw new BusinessException(
+        'DUPLICATE_AVAILABILITY_IDS',
+        'Duplicate time slots were selected. Please try again.',
+        HttpStatus.BAD_REQUEST,
+        { ids },
+      );
     }
 
     const updatableAvailabilities = await this.prisma.availability.findMany({
@@ -80,8 +90,16 @@ export class AvailabilitiesService {
     });
 
     if (updatableAvailabilities.length !== uniqueIds.length) {
-      throw new BadRequestException(
-        'Some availabilities not found, not yours, or already have booking',
+      const updatableIdSet = new Set(
+        updatableAvailabilities.map((item) => item.id),
+      );
+      const invalidIds = uniqueIds.filter((id) => !updatableIdSet.has(id));
+
+      throw new BusinessException(
+        'AVAILABILITY_NOT_UPDATABLE',
+        "Some time slots can't be updated. They may be booked or unavailable.",
+        HttpStatus.BAD_REQUEST,
+        { invalidIds },
       );
     }
 

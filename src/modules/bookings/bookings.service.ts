@@ -1,10 +1,6 @@
 import { PrismaService } from '@/database/prisma/prisma.service';
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BusinessException } from '@/common/exceptions/business.exception';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingStatus, Prisma } from '@prisma/client';
 import {
@@ -61,23 +57,47 @@ export class BookingsService {
         });
 
         if (!availability) {
-          throw new NotFoundException('Availability not found');
+          throw new BusinessException(
+            'AVAILABILITY_NOT_FOUND',
+            'This time slot is no longer available. Please choose another.',
+            HttpStatus.NOT_FOUND,
+            { availabilityId: dto.availabilityId },
+          );
         }
 
         if (availability.teacher.userId === studentId) {
-          throw new BadRequestException('You cannot book your own lesson');
+          throw new BusinessException(
+            'CANNOT_BOOK_OWN_LESSON',
+            "You can't book a lesson with yourself.",
+            HttpStatus.BAD_REQUEST,
+          );
         }
 
         if (!availability.isOpen) {
-          throw new BadRequestException('Availability is not open');
+          throw new BusinessException(
+            'AVAILABILITY_NOT_OPEN',
+            'This time slot is closed. Please choose another.',
+            HttpStatus.BAD_REQUEST,
+            { availabilityId: availability.id },
+          );
         }
 
         if (availability.teacher.hourlyRate === null) {
-          throw new BadRequestException('Teacher hourly rate is not set');
+          throw new BusinessException(
+            'TEACHER_HOURLY_RATE_NOT_SET',
+            "This teacher hasn't set a price yet. Please try another teacher.",
+            HttpStatus.BAD_REQUEST,
+            { teacherId: availability.teacherId },
+          );
         }
 
         if (availability.blocks.length > 0) {
-          throw new ConflictException('This time slot already has a booking');
+          throw new BusinessException(
+            'AVAILABILITY_ALREADY_BOOKED',
+            'This time slot was just booked. Please choose another.',
+            HttpStatus.CONFLICT,
+            { availabilityId: availability.id },
+          );
         }
 
         const durationMinutes = LESSON_DURATION_BY_TYPE[dto.lessonType];
@@ -141,7 +161,12 @@ export class BookingsService {
       });
     } catch (error) {
       if (this.isActiveBookingConflictError(error)) {
-        throw new ConflictException('This time slot is already reserved');
+        throw new BusinessException(
+          'TIME_SLOT_ALREADY_RESERVED',
+          'This time slot was just reserved. Please choose another.',
+          HttpStatus.CONFLICT,
+          { availabilityId: dto.availabilityId },
+        );
       }
 
       throw error;

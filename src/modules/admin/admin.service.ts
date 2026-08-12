@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from 'src/database/prisma/prisma.service';
 import { UpdateTeacherStatusDto } from './dto/update-teacher-status.dto';
 
@@ -12,7 +13,12 @@ export class AdminService {
     });
 
     if (!teacherProfile) {
-      throw new NotFoundException('Teacher profile not found');
+      throw new BusinessException(
+        'TEACHER_PROFILE_NOT_FOUND',
+        'Teacher profile not found.',
+        HttpStatus.NOT_FOUND,
+        { teacherProfileId: id },
+      );
     }
 
     return this.prisma.teacherProfile.update({

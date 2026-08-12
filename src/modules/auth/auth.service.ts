@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { AuthProvider } from '@prisma/client';
+import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '../../database/prisma/prisma.service';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { JwtPayload } from './types/jwt-payload.type';
@@ -88,7 +89,11 @@ export class AuthService {
       const payload = ticket.getPayload();
 
       if (!payload?.sub || !payload.email) {
-        throw new UnauthorizedException('Invalid Google token');
+        throw new BusinessException(
+          'INVALID_GOOGLE_TOKEN',
+          'Google sign-in failed. Please try again.',
+          HttpStatus.UNAUTHORIZED,
+        );
       }
 
       return {
@@ -97,8 +102,16 @@ export class AuthService {
         name: payload.name ?? null,
         profileImage: payload.picture ?? null,
       };
-    } catch {
-      throw new UnauthorizedException('Invalid Google token');
+    } catch (error) {
+      if (error instanceof BusinessException) {
+        throw error;
+      }
+
+      throw new BusinessException(
+        'INVALID_GOOGLE_TOKEN',
+        'Google sign-in failed. Please try again.',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
   }
 
@@ -121,7 +134,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException();
+      throw new BusinessException(
+        'USER_NOT_FOUND',
+        "Your account wasn't found. Please sign in again.",
+        HttpStatus.UNAUTHORIZED,
+        { userId: currentUser.userId },
+      );
     }
 
     return { user };

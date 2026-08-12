@@ -1,9 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from 'src/database/prisma/prisma.service';
 import { BookingStatus, TeacherStatus } from '@prisma/client';
 import { TeacherProfileDto } from './dto/teacher-profile.dto';
@@ -24,7 +20,12 @@ export class TeachersService {
       });
 
       if (!profile) {
-        throw new NotFoundException('Teacher profile not found');
+        throw new BusinessException(
+          'TEACHER_PROFILE_NOT_FOUND',
+          'Teacher profile not found. Please create one first.',
+          HttpStatus.NOT_FOUND,
+          { userId },
+        );
       }
 
       const languages = await tx.language.findMany({
@@ -44,11 +45,33 @@ export class TeachersService {
       });
 
       if (languages.length !== dto.languages.length) {
-        throw new BadRequestException('Invalid languages');
+        const foundNames = new Set(languages.map((language) => language.name));
+        const invalidLanguages = dto.languages.filter(
+          (language) => !foundNames.has(language),
+        );
+
+        throw new BusinessException(
+          'INVALID_LANGUAGES',
+          'Some selected languages are invalid. Please check and try again.',
+          HttpStatus.BAD_REQUEST,
+          { invalidLanguages },
+        );
       }
 
       if (specialties.length !== dto.specialties.length) {
-        throw new BadRequestException('Invalid specialties');
+        const foundNames = new Set(
+          specialties.map((specialty) => specialty.name),
+        );
+        const invalidSpecialties = dto.specialties.filter(
+          (specialty) => !foundNames.has(specialty),
+        );
+
+        throw new BusinessException(
+          'INVALID_SPECIALTIES',
+          'Some selected specialties are invalid. Please check and try again.',
+          HttpStatus.BAD_REQUEST,
+          { invalidSpecialties },
+        );
       }
 
       const currentLanguageIds = profile.teacherLanguages.map(
@@ -134,7 +157,12 @@ export class TeachersService {
       });
 
       if (existingProfile) {
-        throw new ConflictException('Teacher profile already exists');
+        throw new BusinessException(
+          'TEACHER_PROFILE_ALREADY_EXISTS',
+          'You already have a teacher profile.',
+          HttpStatus.CONFLICT,
+          { userId, teacherProfileId: existingProfile.id },
+        );
       }
 
       const languages = await tx.language.findMany({
@@ -154,11 +182,33 @@ export class TeachersService {
       });
 
       if (languages.length !== dto.languages.length) {
-        throw new BadRequestException('Invalid languages');
+        const foundCodes = new Set(languages.map((language) => language.code));
+        const invalidLanguages = dto.languages.filter(
+          (language) => !foundCodes.has(language),
+        );
+
+        throw new BusinessException(
+          'INVALID_LANGUAGES',
+          'Some selected languages are invalid. Please check and try again.',
+          HttpStatus.BAD_REQUEST,
+          { invalidLanguages },
+        );
       }
 
       if (specialties.length !== dto.specialties.length) {
-        throw new BadRequestException('Invalid specialties');
+        const foundCodes = new Set(
+          specialties.map((specialty) => specialty.code),
+        );
+        const invalidSpecialties = dto.specialties.filter(
+          (specialty) => !foundCodes.has(specialty),
+        );
+
+        throw new BusinessException(
+          'INVALID_SPECIALTIES',
+          'Some selected specialties are invalid. Please check and try again.',
+          HttpStatus.BAD_REQUEST,
+          { invalidSpecialties },
+        );
       }
 
       const profile = await tx.teacherProfile.create({
@@ -301,7 +351,12 @@ export class TeachersService {
     });
 
     if (!teacher) {
-      throw new NotFoundException('Teacher not found');
+      throw new BusinessException(
+        'TEACHER_NOT_FOUND',
+        'This teacher could not be found.',
+        HttpStatus.NOT_FOUND,
+        { teacherId: id },
+      );
     }
 
     return teacher;
@@ -316,7 +371,12 @@ export class TeachersService {
     });
 
     if (!teacher) {
-      throw new NotFoundException('Teacher not found');
+      throw new BusinessException(
+        'TEACHER_NOT_FOUND',
+        'This teacher could not be found.',
+        HttpStatus.NOT_FOUND,
+        { teacherId },
+      );
     }
 
     return this.prisma.availability.findMany({
