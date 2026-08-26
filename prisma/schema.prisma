@@ -130,6 +130,8 @@ model Booking {
 
   blocks AvailabilityBlock[]
 
+  payment Payment?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -154,6 +156,39 @@ model AvailabilityBlock {
 
   @@id([bookingId, availabilityId])
   @@index([availabilityId])
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  
+  bookingId       String        @unique
+  booking         Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  provider        String        @default("STRIPE")
+  paymentIntentId String        @unique // Stripe pi_...
+  clientSecret    String?       // for front
+  
+  amount          Int           
+  currency        String        @default("usd")
+  status          PaymentStatus @default(READY)
+  
+  paidAt          DateTime?
+  failedAt        DateTime?
+  receiptUrl      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([paymentIntentId])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique // Stripe evt_...
+  eventType   String   // payment_intent.succeeded 등
+  payload     Json     // Stripe 원본 JSON
+  processedAt DateTime @default(now())
+
+  @@index([eventId])
 }
 
 enum AuthProvider {
@@ -181,6 +216,15 @@ enum BookingStatus {
   PENDING_PAYMENT
   CONFIRMED
   CANCELLED
-  COMPLETED
   EXPIRED
+  COMPLETED
+  REFUND_PROCESSING
+}
+
+enum PaymentStatus {
+  READY       // PaymentIntent 생성됨
+  PROCESSING  // 카드 승인 진행 중 (3DS 인증 등)
+  PAID        // 결제완료 (웹훅 수신)
+  FAILED      
+  REFUNDED    
 }

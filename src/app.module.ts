@@ -10,6 +10,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { AvailabilitiesModule } from './modules/availabilities/availabilities.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { PaymentModule } from './modules/payment/payment.module';
 
 @Module({
   imports: [
@@ -24,8 +25,9 @@ import { ScheduleModule } from '@nestjs/schedule';
     UploadsModule,
     BookingsModule,
     AvailabilitiesModule,
+    PaymentModule
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }
