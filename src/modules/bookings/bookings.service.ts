@@ -31,6 +31,11 @@ export class BookingsService {
             },
           },
         },
+        review: {
+          select: {
+            id: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
