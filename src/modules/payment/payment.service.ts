@@ -4,6 +4,7 @@ import { BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
+import { MeetingService } from '@/modules/meeting/meeting.service';
 
 @Injectable()
 export class PaymentService {
@@ -13,6 +14,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly meetingService: MeetingService,
   ) {
     this.stripe = new Stripe(
       this.configService.getOrThrow<string>('STRIPE_SECRET_KEY'),
@@ -65,7 +67,7 @@ export class PaymentService {
         'PAYMENT_ALREADY_COMPLETED',
         'This booking has already been paid.',
         HttpStatus.CONFLICT,
-      );``
+      );
     }
     if (
       booking.payment?.status === PaymentStatus.READY &&
@@ -162,8 +164,29 @@ export class PaymentService {
     }
 
     try {
+      const payment = await this.prisma.payment.findUnique({
+        where: { paymentIntentId: paymentIntent.id },
+        include: { booking: true },
+      });
+
+      if (!payment) {
+        throw new BusinessException(
+          'PAYMENT_NOT_FOUND',
+          'Payment not found for this intent.',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      if (payment.status === PaymentStatus.PAID) {
+        return { received: true };
+      }
+
+      const meeting = await this.meetingService.createRoom(
+        payment.booking.lessonEndAt,
+      );
+
       await this.prisma.$transaction(async (tx) => {
-        const [payment] = await tx.$queryRaw<
+        const [lockedPayment] = await tx.$queryRaw<
           Array<{ id: string; bookingId: string; status: PaymentStatus }>
         >(Prisma.sql`
           SELECT id, "bookingId", status FROM "Payment"
@@ -171,24 +194,16 @@ export class PaymentService {
           FOR UPDATE
         `);
 
-        if (!payment) {
-          throw new BusinessException(
-            'PAYMENT_NOT_FOUND',
-            'Payment not found for this intent.',
-            HttpStatus.INTERNAL_SERVER_ERROR,
-          );
-        }
-
-        if (payment.status === PaymentStatus.PAID) {
+        if (lockedPayment.status === PaymentStatus.PAID) {
           return;
         }
 
         await tx.$queryRaw(
-          Prisma.sql`SELECT id FROM "Booking" WHERE id = ${payment.bookingId} FOR UPDATE`,
+          Prisma.sql`SELECT id FROM "Booking" WHERE id = ${lockedPayment.bookingId} FOR UPDATE`,
         );
 
         await tx.payment.update({
-          where: { id: payment.id },
+          where: { id: lockedPayment.id },
           data: {
             status: PaymentStatus.PAID,
             paidAt: new Date(),
@@ -197,8 +212,11 @@ export class PaymentService {
         });
 
         await tx.booking.update({
-          where: { id: payment.bookingId },
-          data: { status: BookingStatus.CONFIRMED },
+          where: { id: lockedPayment.bookingId },
+          data: {
+            status: BookingStatus.CONFIRMED,
+            meetingUrl: meeting.roomUrl,
+          },
         });
 
         await tx.webhookEvent.create({
