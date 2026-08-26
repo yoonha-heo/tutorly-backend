@@ -16,15 +16,24 @@ export class BookingExpirationCronService {
     const expiredBookings = await this.prisma.booking.findMany({
       where: {
         status: BookingStatus.PENDING_PAYMENT,
-        paymentExpiresAt: {
-          lte: now,
-        },
+        OR: [
+          {
+            paymentExpiresAt: {
+              lte: now,
+            },
+          },
+          {
+            lessonStartAt: {
+              lte: now,
+            },
+          },
+        ],
       },
       select: {
         id: true,
       },
       orderBy: {
-        paymentExpiresAt: 'asc',
+        lessonStartAt: 'asc',
       },
       take: 100,
     });
@@ -47,9 +56,18 @@ export class BookingExpirationCronService {
         where: {
           id: bookingId,
           status: BookingStatus.PENDING_PAYMENT,
-          paymentExpiresAt: {
-            lte: now,
-          },
+          OR: [
+            {
+              paymentExpiresAt: {
+                lte: now,
+              },
+            },
+            {
+              lessonStartAt: {
+                lte: now,
+              },
+            },
+          ],
         },
         data: {
           status: BookingStatus.EXPIRED,
