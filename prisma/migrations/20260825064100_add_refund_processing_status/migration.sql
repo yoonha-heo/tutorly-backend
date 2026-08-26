@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "BookingStatus" ADD VALUE 'REFUND_PROCESSING';

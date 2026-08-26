@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { LessonType } from '@prisma/client';
+import { PaymentService } from '@/modules/payment/payment.service';
 
 describe('BookingsService', () => {
   let service: BookingsService;
@@ -35,6 +36,7 @@ describe('BookingsService', () => {
       providers: [
         BookingsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: PaymentService, useValue: { stripe: {} } },
       ],
     }).compile();
 

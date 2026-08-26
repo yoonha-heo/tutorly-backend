@@ -2,16 +2,20 @@ import { PrismaService } from '@/database/prisma/prisma.service';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { Booking, BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
 import {
   LESSON_DURATION_BY_TYPE,
   PAYMENT_EXPIRES_IN_MINUTES,
   SLOT_INTERVAL_MINUTES,
 } from '@/common/constants/booking.constants';
+import { PaymentService } from '@/modules/payment/payment.service';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paymentService: PaymentService,
+  ) { }
 
   async getMyLessons(userId: string) {
     return this.prisma.booking.findMany({
@@ -173,7 +177,104 @@ export class BookingsService {
     }
   }
 
-  // Handles race condition conflicts when creating bookings.
+  async cancelBooking(bookingId: string, userId: string) {
+    // [1단계] 동시성 방어: 1차 DB 락으로 중복 요청 즉시 튕겨내기
+    const booking = await this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<Booking[]>`
+      SELECT * FROM "Booking" WHERE id = ${bookingId} AND "studentId" = ${userId} FOR UPDATE
+    `;
+      if (!locked)
+        throw new BusinessException(
+          'BOOKING_NOT_FOUND',
+          'This booking could not be found.',
+          HttpStatus.NOT_FOUND,
+        );
+      if (
+        (
+          [BookingStatus.CANCELLED, BookingStatus.REFUND_PROCESSING] as BookingStatus[]
+        ).includes(locked.status)
+      ) {
+        throw new BusinessException(
+          'BOOKING_NOT_CANCELLABLE',
+          'This booking is already cancelled or is being cancelled.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (locked.lessonStartAt <= new Date()) {
+        throw new BusinessException(
+          'BOOKING_CANCEL_WINDOW_CLOSED',
+          'This lesson can only be cancelled before it starts.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // 선점 상태로 변경 (다른 요청은 위 조건문에서 튕겨나감)
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.REFUND_PROCESSING },
+      });
+      return locked;
+    });
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { bookingId },
+    });
+
+    // [2단계] Stripe 처리 (DB 트랜잭션 밖에서 진행)
+    try {
+      if (booking.status === BookingStatus.PENDING_PAYMENT) {
+        // 💡 결제 전: 결제창만 무효화
+        if (payment?.paymentIntentId) {
+          await this.paymentService.stripe.paymentIntents.cancel(
+            payment.paymentIntentId,
+          );
+        }
+      } else if (booking.status === BookingStatus.CONFIRMED) {
+        // 💡 결제 완료: 실제 환불 진행 (멱등성 키로 이중 환불 방지)
+        if (payment?.paymentIntentId) {
+          await this.paymentService.stripe.refunds.create(
+            { payment_intent: payment.paymentIntentId },
+            { idempotencyKey: `cancel_${bookingId}` },
+          );
+        }
+      }
+    } catch (error) {
+      // PG사 에러 시 원래 상태로 복구
+      await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: booking.status },
+      });
+      throw new BusinessException(
+        'BOOKING_CANCEL_FAILED',
+        'Payment cancellation failed. Please try again.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    // [3단계] 최종 마감 (Booking, Payment, Timeslot 한 번에 업데이트)
+    return await this.prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.CANCELLED },
+      });
+
+      if (payment) {
+        await tx.payment.update({
+          where: { bookingId },
+          data: { status: PaymentStatus.REFUNDED },
+        });
+      }
+
+      await tx.availabilityBlock.deleteMany({
+        where: { bookingId },
+      });
+
+      return { success: true };
+    });
+  }
+
+
   private isActiveBookingConflictError(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
       return false;
