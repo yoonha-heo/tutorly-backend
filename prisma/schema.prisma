@@ -38,6 +38,8 @@ model TeacherProfile {
   profileImageUrl String?
   hourlyRate      Int?
   status          TeacherStatus @default(PENDING)
+  averageRating   Float         @default(0)
+  reviewCount     Int           @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -127,10 +129,12 @@ model Booking {
 
   status           BookingStatus @default(PENDING_PAYMENT)
   paymentExpiresAt DateTime?
+  meetingUrl       String?
 
   blocks AvailabilityBlock[]
 
   payment Payment?
+  review  Review?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -179,6 +183,19 @@ model Payment {
   updatedAt       DateTime      @updatedAt
 
   @@index([paymentIntentId])
+}
+
+model Review {
+  id String @id @default(cuid())
+
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  rating  Int
+  comment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model WebhookEvent {
