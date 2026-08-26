@@ -295,6 +295,13 @@ export class TeachersService {
           teacherSpecialties: {
             include: { specialty: true },
           },
+          _count: {
+            select: {
+              teacherBookings: {
+                where: { status: BookingStatus.COMPLETED },
+              },
+            },
+          },
         },
       }),
 
@@ -304,7 +311,7 @@ export class TeachersService {
     const hasNextPage = page * limit < totalCount;
 
     return {
-      items,
+      items: items.map(withLessonCount),
       page,
       limit,
       totalCount,
@@ -347,6 +354,13 @@ export class TeachersService {
             specialty: true,
           },
         },
+        _count: {
+          select: {
+            teacherBookings: {
+              where: { status: BookingStatus.COMPLETED },
+            },
+          },
+        },
       },
     });
 
@@ -359,7 +373,7 @@ export class TeachersService {
       );
     }
 
-    return teacher;
+    return withLessonCount(teacher);
   }
 
   async getTeacherAvailabilities(teacherId: string) {
@@ -406,4 +420,14 @@ export class TeachersService {
       },
     });
   }
+}
+
+function withLessonCount<T extends { _count: { teacherBookings: number } }>(
+  teacher: T,
+) {
+  const { _count, ...rest } = teacher;
+  return {
+    ...rest,
+    lessonCount: _count.teacherBookings,
+  };
 }
