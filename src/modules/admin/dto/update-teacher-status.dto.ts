@@ -3,5 +3,5 @@ import { IsEnum } from 'class-validator';
 
 export class UpdateTeacherStatusDto {
   @IsEnum(TeacherStatus)
-  status: TeacherStatus;
+  status!: TeacherStatus;
 }

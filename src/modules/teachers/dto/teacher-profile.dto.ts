@@ -2,20 +2,20 @@ import { IsArray, IsInt, IsString } from 'class-validator';
 
 export class TeacherProfileDto {
   @IsString()
-  headline: string;
+  headline!: string;
 
   @IsString()
-  bio: string;
+  bio!: string;
 
   @IsString()
-  profileImageUrl: string;
+  profileImageUrl!: string;
 
   @IsInt()
-  hourlyRate: number;
+  hourlyRate!: number;
 
   @IsArray()
-  languages: string[];
+  languages!: string[];
 
   @IsArray()
-  specialties: string[];
+  specialties!: string[];
 }
