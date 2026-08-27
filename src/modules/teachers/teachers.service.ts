@@ -287,6 +287,7 @@ export class TeachersService {
         where,
         skip,
         take: limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           user: true,
           teacherLanguages: {
