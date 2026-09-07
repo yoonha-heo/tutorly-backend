@@ -4,6 +4,7 @@ import { BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
+import { ChatsService } from '@/modules/chats/chats.service';
 import { MeetingService } from '@/modules/meeting/meeting.service';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly meetingService: MeetingService,
+    private readonly chatsService: ChatsService,
   ) {
     this.stripe = new Stripe(
       this.configService.getOrThrow<string>('STRIPE_SECRET_KEY'),
@@ -185,7 +187,7 @@ export class PaymentService {
         payment.booking.lessonEndAt,
       );
 
-      await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const [lockedPayment] = await tx.$queryRaw<
           Array<{ id: string; bookingId: string; status: PaymentStatus }>
         >(Prisma.sql`
@@ -211,11 +213,16 @@ export class PaymentService {
           },
         });
 
-        await tx.booking.update({
+        const confirmedBooking = await tx.booking.update({
           where: { id: lockedPayment.bookingId },
           data: {
             status: BookingStatus.CONFIRMED,
             meetingUrl: meeting.roomUrl,
+          },
+          include: {
+            teacher: {
+              select: { userId: true },
+            },
           },
         });
 
@@ -226,7 +233,19 @@ export class PaymentService {
             payload: event as unknown as Prisma.InputJsonValue,
           },
         });
+
+        return confirmedBooking;
       });
+
+      if (result) {
+        await this.chatsService.notifyLessonConfirmed({
+          studentId: result.studentId,
+          teacherUserId: result.teacher.userId,
+          bookingId: result.id,
+          lessonStartAt: result.lessonStartAt,
+          meetingUrl: meeting.roomUrl,
+        });
+      }
 
       return { received: true };
     } catch (error) {

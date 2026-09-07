@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentService } from './payment.service';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { MeetingService } from '@/modules/meeting/meeting.service';
+import { ChatsService } from '@/modules/chats/chats.service';
 
 describe('PaymentService', () => {
   let service: PaymentService;
@@ -24,6 +25,10 @@ describe('PaymentService', () => {
         {
           provide: MeetingService,
           useValue: { createRoom: jest.fn() },
+        },
+        {
+          provide: ChatsService,
+          useValue: { notifyLessonConfirmed: jest.fn() },
         },
       ],
     }).compile();
