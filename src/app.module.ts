@@ -14,6 +14,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { MeetingModule } from './modules/meeting/meeting.module';
 import { ReviewModule } from './modules/review/review.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { ChatsModule } from './modules/chats/chats.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { RedisModule } from './modules/redis/redis.module';
     MeetingModule,
     ReviewModule,
     RedisModule,
+    ChatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
