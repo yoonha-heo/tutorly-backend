@@ -13,6 +13,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { PaymentModule } from './modules/payment/payment.module';
 import { MeetingModule } from './modules/meeting/meeting.module';
 import { ReviewModule } from './modules/review/review.module';
+import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ReviewModule } from './modules/review/review.module';
     PaymentModule,
     MeetingModule,
     ReviewModule,
+    RedisModule,
   ],
   controllers: [AppController],
   providers: [AppService],
