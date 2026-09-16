@@ -3,7 +3,7 @@ import { MessageType, Prisma } from '@prisma/client';
 import Redis from 'ioredis';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
-import { REDIS_PUBLISHER } from '@/modules/redis/redis.module';
+import { REDIS } from '@/modules/redis/redis.module';
 import { SendChatDto } from './dto/send-chat.dto';
 import { GetMessageListQueryDto } from './dto/get-message-list-query.dto';
 
@@ -13,12 +13,51 @@ const MESSAGE_SENDER_SELECT = {
   profileImage: true,
 } as const;
 
+type MessageSender = {
+  id: string;
+  name: string | null;
+  profileImage: string | null;
+};
+
+type PublishedMessage = {
+  id: string;
+  channelId: string;
+  senderId: string | null;
+  content: string;
+  type: MessageType;
+  createdAt: Date;
+  sender?: MessageSender | null;
+  meetingUrl?: string;
+};
+
+type CursorMessage = {
+  id: string;
+  createdAt: Date;
+};
+
+type UnreadCountRow = {
+  channelId: string;
+  count: number;
+};
+
+function unreadHashKey(userId: string) {
+  return `unread:${userId}`;
+}
+
+function unreadTotalKey(userId: string) {
+  return `unread:${userId}:total`;
+}
+
+function unreadWarmedKey(userId: string) {
+  return `unread:${userId}:warmed`;
+}
+
 @Injectable()
 export class ChatsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(REDIS_PUBLISHER) private readonly redisPublisher: Redis,
-  ) { }
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   async sendChat(userId: string, dto: SendChatDto) {
     if (dto.recipientId === userId) {
@@ -45,7 +84,7 @@ export class ChatsService {
     const savedMessage = await this.prisma.$transaction(async (tx) => {
       const channel = await this.ensureDirectChannel(tx, userId, recipient.id);
 
-      return tx.message.create({
+      const message = await tx.message.create({
         data: {
           content: dto.content,
           channelId: channel.id,
@@ -53,8 +92,19 @@ export class ChatsService {
         },
         include: { sender: { select: MESSAGE_SENDER_SELECT } },
       });
+
+      await tx.channel.update({
+        where: { id: channel.id },
+        data: { lastMessageAt: message.createdAt },
+      });
+
+      return message;
     });
 
+    await this.incrementChannelUnread(
+      savedMessage.channelId,
+      savedMessage.senderId,
+    );
     await this.publishNewMessage(savedMessage.channelId, savedMessage);
 
     return savedMessage;
@@ -75,16 +125,24 @@ export class ChatsService {
         params.bookingId,
       );
 
-      return tx.message.create({
-        data: {
-          channelId: channel.id,
-          senderId: null,
-          content: `🎉 Lesson confirmed!\n- Date & Time: ${params.lessonStartAt.toLocaleString('en-US')}`,
-          type: MessageType.SYSTEM,
-        } as unknown as Prisma.MessageUncheckedCreateInput,
+      const data: Prisma.MessageUncheckedCreateInput = {
+        channelId: channel.id,
+        senderId: null,
+        content: `🎉 Lesson confirmed!\n- Date & Time: ${params.lessonStartAt.toLocaleString('en-US')}`,
+        type: MessageType.SYSTEM,
+      };
+
+      const message = await tx.message.create({ data });
+
+      await tx.channel.update({
+        where: { id: channel.id },
+        data: { lastMessageAt: message.createdAt },
       });
+
+      return message;
     });
 
+    await this.incrementChannelUnread(savedMessage.channelId, savedMessage.senderId);
     await this.publishNewMessage(savedMessage.channelId, {
       ...savedMessage,
       meetingUrl: params.meetingUrl,
@@ -92,63 +150,25 @@ export class ChatsService {
   }
 
   async getChatList(userId: string) {
-    const channels = await this.prisma.channel.findMany({
-      where: { members: { some: { userId } } },
-      include: {
-        members: {
-          select: {
-            userId: true,
-            lastReadAt: true,
-            user: { select: MESSAGE_SENDER_SELECT },
-          },
-        },
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          include: { sender: { select: MESSAGE_SENDER_SELECT } },
-        },
-      },
-    });
+    const channels = await this.findUserChannels(userId);
 
-    const unreadCounts =
-      channels.length === 0
-        ? []
-        : await this.prisma.message.groupBy({
-            by: ['channelId'],
-            where: {
-              OR: channels.map((channel) => {
-                const lastReadAt =
-                  channel.members.find((member) => member.userId === userId)
-                    ?.lastReadAt ?? new Date(0);
+    if (channels.length === 0) {
+      return { items: [] };
+    }
 
-                return {
-                  channelId: channel.id,
-                  createdAt: { gt: lastReadAt },
-                  NOT: { senderId: userId },
-                };
-              }),
-            },
-            _count: { _all: true },
-          });
+    const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
+    if (!isWarmed) {
+      await this.warmUnreadCounts(userId);
+    }
 
-    const unreadByChannelId = new Map(
-      unreadCounts.map((row) => [row.channelId, row._count._all]),
-    );
+    const unreadHash = await this.redis.hgetall(unreadHashKey(userId));
 
-    const items = channels
-      .map((channel) => ({
-        id: channel.id,
-        otherUser:
-          channel.members.find((member) => member.userId !== userId)?.user ??
-          null,
-        lastMessage: channel.messages[0] ?? null,
-        unreadCount: unreadByChannelId.get(channel.id) ?? 0,
-      }))
-      .sort((a, b) => {
-        const aTime = a.lastMessage?.createdAt.getTime() ?? 0;
-        const bTime = b.lastMessage?.createdAt.getTime() ?? 0;
-        return bTime - aTime;
-      });
+    const items = channels.map((channel) => ({
+      id: channel.id,
+      otherUser: channel.members[0]?.user ?? null,
+      lastMessage: channel.messages[0] ?? null,
+      unreadCount: Number(unreadHash[channel.id] ?? 0),
+    }));
 
     return { items };
   }
@@ -165,6 +185,30 @@ export class ChatsService {
         'You are not a member of this chat channel.',
         HttpStatus.FORBIDDEN,
       );
+    }
+
+    const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
+    if (!isWarmed) {
+      await this.warmUnreadCounts(userId);
+      return;
+    }
+
+    const previous = Number(
+      (await this.redis.hget(unreadHashKey(userId), channelId)) ?? 0,
+    );
+    if (previous <= 0) {
+      return;
+    }
+
+    await this.redis
+      .pipeline()
+      .hdel(unreadHashKey(userId), channelId)
+      .decrby(unreadTotalKey(userId), previous)
+      .exec();
+
+    const total = Number((await this.redis.get(unreadTotalKey(userId))) ?? 0);
+    if (total < 0) {
+      await this.redis.set(unreadTotalKey(userId), 0);
     }
   }
 
@@ -199,36 +243,27 @@ export class ChatsService {
       );
     }
 
-    const limit = query.limit ?? 20;
-    let cursorFilter: Prisma.MessageWhereInput = {};
+    const cursorMessage = query.cursor
+      ? await this.prisma.message.findUnique({
+          where: { id: query.cursor },
+          select: { id: true, channelId: true, createdAt: true },
+        })
+      : null;
 
-    if (query.cursor) {
-      const cursorMessage = await this.prisma.message.findUnique({
-        where: { id: query.cursor },
-        select: { id: true, channelId: true, createdAt: true },
-      });
-
-      if (!cursorMessage || cursorMessage.channelId !== channelId) {
-        throw new BusinessException(
-          'INVALID_CURSOR',
-          'The pagination cursor is invalid.',
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      cursorFilter = {
-        OR: [
-          { createdAt: { lt: cursorMessage.createdAt } },
-          {
-            createdAt: cursorMessage.createdAt,
-            id: { lt: cursorMessage.id },
-          },
-        ],
-      };
+    if (query.cursor && (!cursorMessage || cursorMessage.channelId !== channelId)) {
+      throw new BusinessException(
+        'INVALID_CURSOR',
+        'The pagination cursor is invalid.',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
+    const limit = query.limit ?? 20;
     const messages = await this.prisma.message.findMany({
-      where: { channelId, ...cursorFilter },
+      where: {
+        channelId,
+        ...this.buildCursorFilter(cursorMessage),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       include: { sender: { select: MESSAGE_SENDER_SELECT } },
@@ -241,6 +276,102 @@ export class ChatsService {
       items,
       nextCursor: hasNextPage ? items[items.length - 1].id : null,
       hasNextPage,
+    };
+  }
+
+  private async findUserChannels(userId: string) {
+    return this.prisma.channel.findMany({
+      where: { members: { some: { userId } } },
+      orderBy: { lastMessageAt: 'desc' },
+      include: {
+        members: {
+          where: { userId: { not: userId } },
+          select: {
+            user: { select: MESSAGE_SENDER_SELECT },
+          },
+        },
+        messages: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          include: { sender: { select: MESSAGE_SENDER_SELECT } },
+        },
+      },
+    });
+  }
+
+  private async incrementChannelUnread(
+    channelId: string,
+    senderId: string | null,
+  ) {
+    const members = await this.prisma.channelMember.findMany({
+      where: {
+        channelId,
+        ...(senderId ? { userId: { not: senderId } } : {}),
+      },
+      select: { userId: true },
+    });
+
+    for (const member of members) {
+      const isWarmed = await this.redis.exists(unreadWarmedKey(member.userId));
+      if (!isWarmed) {
+        await this.warmUnreadCounts(member.userId);
+        continue;
+      }
+
+      await this.redis
+        .pipeline()
+        .hincrby(unreadHashKey(member.userId), channelId, 1)
+        .incr(unreadTotalKey(member.userId))
+        .exec();
+    }
+  }
+
+  private async warmUnreadCounts(userId: string) {
+    const unreadCounts = await this.findUnreadCounts(userId);
+    const total = unreadCounts.reduce((sum, row) => sum + row.count, 0);
+
+    const pipeline = this.redis.pipeline();
+    pipeline.del(unreadHashKey(userId));
+
+    for (const row of unreadCounts) {
+      if (row.count > 0) {
+        pipeline.hset(unreadHashKey(userId), row.channelId, row.count);
+      }
+    }
+
+    pipeline.set(unreadTotalKey(userId), total);
+    pipeline.set(unreadWarmedKey(userId), 1);
+    await pipeline.exec();
+  }
+
+  private async findUnreadCounts(userId: string) {
+    return this.prisma.$queryRaw<UnreadCountRow[]>(Prisma.sql`
+      SELECT cm."channelId", COUNT(m.id)::int AS count
+      FROM "ChannelMember" cm
+      INNER JOIN "Message" m
+        ON m."channelId" = cm."channelId"
+       AND m."createdAt" > cm."lastReadAt"
+       AND m."senderId" IS DISTINCT FROM ${userId}
+      WHERE cm."userId" = ${userId}
+      GROUP BY cm."channelId"
+    `);
+  }
+
+  private buildCursorFilter(
+    cursorMessage: CursorMessage | null,
+  ): Prisma.MessageWhereInput {
+    if (!cursorMessage) {
+      return {};
+    }
+
+    return {
+      OR: [
+        { createdAt: { lt: cursorMessage.createdAt } },
+        {
+          createdAt: cursorMessage.createdAt,
+          id: { lt: cursorMessage.id },
+        },
+      ],
     };
   }
 
@@ -280,8 +411,8 @@ export class ChatsService {
     });
   }
 
-  private async publishNewMessage(channelId: string, message: unknown) {
-    await this.redisPublisher.publish(
+  private async publishNewMessage(channelId: string, message: PublishedMessage) {
+    await this.redis.publish(
       'SOCKET_EVENTS',
       JSON.stringify({
         event: 'NEW_MESSAGE',

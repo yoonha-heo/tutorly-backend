@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '@/database/prisma/prisma.service';
-import { REDIS_PUBLISHER } from '@/modules/redis/redis.module';
+import { REDIS } from '@/modules/redis/redis.module';
 import { ChatsService } from './chats.service';
 
 describe('ChatsService', () => {
@@ -11,7 +11,7 @@ describe('ChatsService', () => {
       providers: [
         ChatsService,
         { provide: PrismaService, useValue: {} },
-        { provide: REDIS_PUBLISHER, useValue: { publish: jest.fn() } },
+        { provide: REDIS, useValue: { publish: jest.fn() } },
       ],
     }).compile();
 
