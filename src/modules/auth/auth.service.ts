@@ -1,12 +1,31 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
-import { AuthProvider } from '@prisma/client';
+import { AuthProvider, UserRole } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import Redis from 'ioredis';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '../../database/prisma/prisma.service';
+import { REDIS } from '@/modules/redis/redis.module';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { JwtPayload } from './types/jwt-payload.type';
+
+const ACCESS_TOKEN_EXPIRES_IN = '15m';
+const REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+type AuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+};
+
+function refreshKey(token: string) {
+  return `refresh:${token}`;
+}
+
+function denyKey(jti: string) {
+  return `jwt:deny:${jti}`;
+}
 
 @Injectable()
 export class AuthService {
@@ -16,6 +35,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    @Inject(REDIS) private readonly redis: Redis,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
@@ -55,19 +75,10 @@ export class AuthService {
       },
     });
 
-    const accessToken = await this.jwtService.signAsync(
-      {
-        sub: user.id,
-        role: user.role,
-      },
-      {
-        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
-        expiresIn: '1h',
-      },
-    );
+    const tokens = await this.issueAuthTokens(user.id, user.role);
 
     return {
-      accessToken,
+      ...tokens,
       user: {
         id: user.id,
         email: user.email,
@@ -77,6 +88,136 @@ export class AuthService {
         teacherProfile: user.teacherProfile,
       },
     };
+  }
+
+  async refresh(refreshToken: string | undefined) {
+    if (!refreshToken) {
+      throw new BusinessException(
+        'REFRESH_TOKEN_MISSING',
+        'Please sign in again.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const userId = await this.redis.get(refreshKey(refreshToken));
+    if (!userId) {
+      throw new BusinessException(
+        'REFRESH_TOKEN_INVALID',
+        'Please sign in again.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!user) {
+      await this.redis.del(refreshKey(refreshToken));
+      throw new BusinessException(
+        'USER_NOT_FOUND',
+        "Your account wasn't found. Please sign in again.",
+        HttpStatus.UNAUTHORIZED,
+        { userId },
+      );
+    }
+
+    await this.redis.del(refreshKey(refreshToken));
+
+    return this.issueAuthTokens(user.id, user.role);
+  }
+
+  async logout(accessToken: string | undefined, refreshToken: string | undefined) {
+    if (accessToken) {
+      await this.denyAccessToken(accessToken);
+    }
+
+    if (refreshToken) {
+      await this.redis.del(refreshKey(refreshToken));
+    }
+  }
+
+  async getMe(currentUser: JwtPayload) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: currentUser.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        profileImage: true,
+        role: true,
+        teacherProfile: {
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new BusinessException(
+        'USER_NOT_FOUND',
+        "Your account wasn't found. Please sign in again.",
+        HttpStatus.UNAUTHORIZED,
+        { userId: currentUser.userId },
+      );
+    }
+
+    return { user };
+  }
+
+  private async issueAuthTokens(
+    userId: string,
+    role: UserRole,
+  ): Promise<AuthTokens> {
+    const jti = randomUUID();
+    const accessToken = await this.jwtService.signAsync(
+      {
+        sub: userId,
+        role,
+        jti,
+      },
+      {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+      },
+    );
+
+    const refreshToken = randomUUID();
+    await this.redis.set(
+      refreshKey(refreshToken),
+      userId,
+      'EX',
+      REFRESH_TOKEN_TTL_SECONDS,
+    );
+
+    return { accessToken, refreshToken };
+  }
+
+  private async denyAccessToken(accessToken: string) {
+    try {
+      const payload = await this.jwtService.verifyAsync<{
+        jti?: string;
+        exp?: number;
+      }>(accessToken, {
+        secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+      });
+
+      if (!payload.jti || !payload.exp) {
+        return;
+      }
+
+      const ttlSeconds = payload.exp - Math.floor(Date.now() / 1000);
+      if (ttlSeconds <= 0) {
+        return;
+      }
+
+      await this.redis.set(denyKey(payload.jti), '1', 'EX', ttlSeconds);
+    } catch {
+      return;
+    }
   }
 
   private async verifyGoogleIdToken(idToken: string) {
@@ -113,35 +254,5 @@ export class AuthService {
         HttpStatus.UNAUTHORIZED,
       );
     }
-  }
-
-  async getMe(currentUser: JwtPayload) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: currentUser.userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        profileImage: true,
-        role: true,
-        teacherProfile: {
-          select: {
-            id: true,
-            status: true,
-          },
-        },
-      },
-    });
-
-    if (!user) {
-      throw new BusinessException(
-        'USER_NOT_FOUND',
-        "Your account wasn't found. Please sign in again.",
-        HttpStatus.UNAUTHORIZED,
-        { userId: currentUser.userId },
-      );
-    }
-
-    return { user };
   }
 }
