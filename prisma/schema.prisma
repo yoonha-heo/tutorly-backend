@@ -54,6 +54,8 @@ model TeacherProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([headline(ops: raw("gin_trgm_ops"))], type: Gin, name: "idx_teacher_profile_headline_trgm")
 }
 
 model Language {
@@ -222,8 +224,11 @@ model Channel {
   members   ChannelMember[]
   messages  Message[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([lastMessageAt(sort: Desc)])
 }
 
 model ChannelMember {
@@ -238,6 +243,7 @@ model ChannelMember {
   lastReadAt DateTime @default(now())
 
   @@unique([channelId, userId])
+  @@index([userId])
 }
 
 model Message {
@@ -253,7 +259,7 @@ model Message {
 
   createdAt DateTime    @default(now())
 
-  @@index([channelId, createdAt])
+  @@index([channelId, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 enum MessageType {
