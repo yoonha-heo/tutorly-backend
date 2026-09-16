@@ -1,11 +1,15 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from 'src/database/prisma/prisma.service';
+import { TeachersService } from '@/modules/teachers/teachers.service';
 import { UpdateTeacherStatusDto } from './dto/update-teacher-status.dto';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teachersService: TeachersService,
+  ) {}
 
   async approveTeacher(id: string, dto: UpdateTeacherStatusDto) {
     const teacherProfile = await this.prisma.teacherProfile.findUnique({
@@ -21,11 +25,15 @@ export class AdminService {
       );
     }
 
-    return this.prisma.teacherProfile.update({
+    const updated = await this.prisma.teacherProfile.update({
       where: { id },
       data: {
         status: dto.status,
       },
     });
+
+    await this.teachersService.bustTeacherSearchCache();
+
+    return updated;
   }
 }

@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '@/database/prisma/prisma.service';
+import { TeachersService } from '@/modules/teachers/teachers.service';
 
 @Injectable()
 export class BookingCompletionCronService {
   private readonly logger = new Logger(BookingCompletionCronService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teachersService: TeachersService,
+  ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async completeConfirmedBookings(): Promise<void> {
@@ -22,6 +26,7 @@ export class BookingCompletionCronService {
       },
       select: {
         id: true,
+        teacherId: true,
       },
       orderBy: {
         lessonEndAt: 'asc',
@@ -30,7 +35,7 @@ export class BookingCompletionCronService {
     });
 
     for (const booking of endedBookings) {
-      await this.completeConfirmedBooking(booking.id, now);
+      await this.completeConfirmedBooking(booking.id, booking.teacherId, now);
     }
 
     if (endedBookings.length > 0) {
@@ -40,9 +45,10 @@ export class BookingCompletionCronService {
 
   private async completeConfirmedBooking(
     bookingId: string,
+    teacherId: string,
     now: Date,
   ): Promise<void> {
-    return this.prisma.$transaction(async (tx) => {
+    const completed = await this.prisma.$transaction(async (tx) => {
       const updateResult = await tx.booking.updateMany({
         where: {
           id: bookingId,
@@ -57,7 +63,7 @@ export class BookingCompletionCronService {
       });
 
       if (updateResult.count === 0) {
-        return;
+        return false;
       }
 
       await tx.availabilityBlock.deleteMany({
@@ -65,6 +71,12 @@ export class BookingCompletionCronService {
           bookingId,
         },
       });
+
+      return true;
     });
+
+    if (completed) {
+      await this.teachersService.incrementLessonCount(teacherId);
+    }
   }
 }

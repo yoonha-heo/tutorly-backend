@@ -4,10 +4,14 @@ import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReviewsQueryDto } from './dto/reviews-query.dto';
+import { TeachersService } from '@/modules/teachers/teachers.service';
 
 @Injectable()
 export class ReviewService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly teachersService: TeachersService,
+  ) {}
 
   async createReview(userId: string, dto: CreateReviewDto) {
     const booking = await this.prisma.booking.findUnique({
@@ -51,8 +55,8 @@ export class ReviewService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const review = await tx.review.create({
+      const review = await this.prisma.$transaction(async (tx) => {
+        const createdReview = await tx.review.create({
           data: {
             bookingId: booking.id,
             rating: dto.rating,
@@ -76,8 +80,12 @@ export class ReviewService {
           },
         });
 
-        return review;
+        return createdReview;
       });
+
+      await this.teachersService.bustTeacherSearchCache();
+
+      return review;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

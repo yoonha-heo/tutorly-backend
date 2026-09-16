@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '@/database/prisma/prisma.service';
+import { TeachersService } from '@/modules/teachers/teachers.service';
 import { ReviewService } from './review.service';
 
 describe('ReviewService', () => {
@@ -10,6 +11,7 @@ describe('ReviewService', () => {
       providers: [
         ReviewService,
         { provide: PrismaService, useValue: {} },
+        { provide: TeachersService, useValue: { bustTeacherSearchCache: jest.fn() } },
       ],
     }).compile();
 

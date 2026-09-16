@@ -1,16 +1,48 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { BookingStatus, Language, Specialty, TeacherStatus } from '@prisma/client';
+import Redis from 'ioredis';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from 'src/database/prisma/prisma.service';
-import { BookingStatus, TeacherStatus } from '@prisma/client';
+import { REDIS } from '@/modules/redis/redis.module';
 import { TeacherProfileDto } from './dto/teacher-profile.dto';
 import { SearchTeachersQueryDto } from './dto/search-teachers-query.dto';
 
+const CATALOG_LANGUAGES_KEY = 'catalog:languages';
+const CATALOG_SPECIALTIES_KEY = 'catalog:specialties';
+const LESSON_COUNT_KEY = 'teacher:lessonCount';
+const SEARCH_VERSION_KEY = 'teachers:search:version';
+const CATALOG_TTL_SECONDS = 60 * 60 * 6;
+const SEARCH_TTL_SECONDS = 60;
+
+const TEACHER_CARD_INCLUDE = {
+  user: true,
+  teacherLanguages: {
+    include: { language: true },
+  },
+  teacherSpecialties: {
+    include: { specialty: true },
+  },
+} as const;
+
+type CachedTeacherSearchPage = {
+  items: Array<{ id: string }>;
+  page: number;
+  limit: number;
+  totalCount: number;
+  hasNextPage: boolean;
+  nextPage: number | null;
+};
+
 @Injectable()
 export class TeachersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   async updateTeacherProfile(userId: string, dto: TeacherProfileDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const profile = await tx.teacherProfile.findUnique({
         where: { userId },
         include: {
@@ -148,6 +180,10 @@ export class TeachersService {
 
       return updatedProfile;
     });
+
+    await this.bustTeacherSearchCache();
+
+    return updated;
   }
 
   async createTeacherProfile(userId: string, dto: TeacherProfileDto) {
@@ -244,43 +280,25 @@ export class TeachersService {
     const page = Number(query.page ?? 1);
     const limit = Number(query.limit ?? 6);
     const skip = (page - 1) * limit;
+    const cacheKey = await this.buildSearchCacheKey(query, page, limit);
+    const cached = await this.redis.get(cacheKey);
 
-    const where = {
-      status: 'APPROVED' as const,
+    if (cached) {
+      const result = JSON.parse(cached) as CachedTeacherSearchPage;
+      const lessonCounts = await this.getLessonCounts(
+        result.items.map((item) => item.id),
+      );
 
-      ...(query.keyword && {
-        OR: [
-          {
-            headline: { contains: query.keyword, mode: 'insensitive' as const },
-          },
-          {
-            user: {
-              name: { contains: query.keyword, mode: 'insensitive' as const },
-            },
-          },
-        ],
-      }),
+      return {
+        ...result,
+        items: result.items.map((item) => ({
+          ...item,
+          lessonCount: lessonCounts.get(item.id) ?? 0,
+        })),
+      };
+    }
 
-      ...(query.language && {
-        teacherLanguages: {
-          some: {
-            language: {
-              code: query.language,
-            },
-          },
-        },
-      }),
-
-      ...(query.specialty && {
-        teacherSpecialties: {
-          some: {
-            specialty: {
-              code: query.specialty,
-            },
-          },
-        },
-      }),
-    };
+    const where = this.buildSearchWhere(query);
 
     const [items, totalCount] = await this.prisma.$transaction([
       this.prisma.teacherProfile.findMany({
@@ -288,53 +306,78 @@ export class TeachersService {
         skip,
         take: limit,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        include: {
-          user: true,
-          teacherLanguages: {
-            include: { language: true },
-          },
-          teacherSpecialties: {
-            include: { specialty: true },
-          },
-          _count: {
-            select: {
-              teacherBookings: {
-                where: { status: BookingStatus.COMPLETED },
-              },
-            },
-          },
-        },
+        include: TEACHER_CARD_INCLUDE,
       }),
-
       this.prisma.teacherProfile.count({ where }),
     ]);
 
+    const lessonCounts = await this.getLessonCounts(
+      items.map((item) => item.id),
+    );
     const hasNextPage = page * limit < totalCount;
-
-    return {
-      items: items.map(withLessonCount),
+    const result = {
+      items: items.map((item) =>
+        withLessonCount(item, lessonCounts.get(item.id) ?? 0),
+      ),
       page,
       limit,
       totalCount,
       hasNextPage,
       nextPage: hasNextPage ? page + 1 : null,
     };
+
+    await this.redis.set(
+      cacheKey,
+      JSON.stringify(result),
+      'EX',
+      SEARCH_TTL_SECONDS,
+    );
+
+    return result;
   }
 
   async getAvailableLanguages() {
-    return this.prisma.language.findMany({
+    const cached = await this.redis.get(CATALOG_LANGUAGES_KEY);
+    if (cached) {
+      return JSON.parse(cached) as Language[];
+    }
+
+    const languages = await this.prisma.language.findMany({
       orderBy: {
         name: 'asc',
       },
     });
+
+    await this.redis.set(
+      CATALOG_LANGUAGES_KEY,
+      JSON.stringify(languages),
+      'EX',
+      CATALOG_TTL_SECONDS,
+    );
+
+    return languages;
   }
 
   async getAvailableSpecialties() {
-    return this.prisma.specialty.findMany({
+    const cached = await this.redis.get(CATALOG_SPECIALTIES_KEY);
+    if (cached) {
+      return JSON.parse(cached) as Specialty[];
+    }
+
+    const specialties = await this.prisma.specialty.findMany({
       orderBy: {
         name: 'asc',
       },
     });
+
+    await this.redis.set(
+      CATALOG_SPECIALTIES_KEY,
+      JSON.stringify(specialties),
+      'EX',
+      CATALOG_TTL_SECONDS,
+    );
+
+    return specialties;
   }
 
   async findTeacherById(id: string) {
@@ -343,26 +386,7 @@ export class TeachersService {
         id,
         status: TeacherStatus.APPROVED,
       },
-      include: {
-        user: true,
-        teacherLanguages: {
-          include: {
-            language: true,
-          },
-        },
-        teacherSpecialties: {
-          include: {
-            specialty: true,
-          },
-        },
-        _count: {
-          select: {
-            teacherBookings: {
-              where: { status: BookingStatus.COMPLETED },
-            },
-          },
-        },
-      },
+      include: TEACHER_CARD_INCLUDE,
     });
 
     if (!teacher) {
@@ -374,7 +398,9 @@ export class TeachersService {
       );
     }
 
-    return withLessonCount(teacher);
+    const lessonCounts = await this.getLessonCounts([teacher.id]);
+
+    return withLessonCount(teacher, lessonCounts.get(teacher.id) ?? 0);
   }
 
   async getTeacherAvailabilities(teacherId: string) {
@@ -421,14 +447,131 @@ export class TeachersService {
       },
     });
   }
+
+  async bustTeacherSearchCache() {
+    await this.redis.incr(SEARCH_VERSION_KEY);
+  }
+
+  async incrementLessonCount(teacherId: string) {
+    const exists = await this.redis.hexists(LESSON_COUNT_KEY, teacherId);
+    if (!exists) {
+      return;
+    }
+
+    await this.redis.hincrby(LESSON_COUNT_KEY, teacherId, 1);
+  }
+
+  private buildSearchWhere(query: SearchTeachersQueryDto) {
+    return {
+      status: TeacherStatus.APPROVED,
+
+      ...(query.keyword && {
+        OR: [
+          {
+            headline: { contains: query.keyword, mode: 'insensitive' as const },
+          },
+          {
+            user: {
+              name: { contains: query.keyword, mode: 'insensitive' as const },
+            },
+          },
+        ],
+      }),
+
+      ...(query.language && {
+        teacherLanguages: {
+          some: {
+            language: {
+              code: query.language,
+            },
+          },
+        },
+      }),
+
+      ...(query.specialty && {
+        teacherSpecialties: {
+          some: {
+            specialty: {
+              code: query.specialty,
+            },
+          },
+        },
+      }),
+    };
+  }
+
+  private async buildSearchCacheKey(
+    query: SearchTeachersQueryDto,
+    page: number,
+    limit: number,
+  ) {
+    const version = (await this.redis.get(SEARCH_VERSION_KEY)) ?? '0';
+    const filterHash = createHash('sha1')
+      .update(
+        JSON.stringify({
+          keyword: query.keyword ?? '',
+          language: query.language ?? '',
+          specialty: query.specialty ?? '',
+        }),
+      )
+      .digest('hex');
+
+    return `teachers:search:v${version}:${filterHash}:p${page}:l${limit}`;
+  }
+
+  private async getLessonCounts(teacherIds: string[]) {
+    const counts = new Map<string, number>();
+    if (teacherIds.length === 0) {
+      return counts;
+    }
+
+    const cached = await this.redis.hmget(LESSON_COUNT_KEY, ...teacherIds);
+    const missing: string[] = [];
+
+    teacherIds.forEach((teacherId, index) => {
+      const value = cached[index];
+      if (value === null) {
+        missing.push(teacherId);
+        return;
+      }
+
+      counts.set(teacherId, Number(value));
+    });
+
+    if (missing.length === 0) {
+      return counts;
+    }
+
+    const rows = await this.prisma.booking.groupBy({
+      by: ['teacherId'],
+      where: {
+        teacherId: { in: missing },
+        status: BookingStatus.COMPLETED,
+      },
+      _count: { _all: true },
+    });
+    const counted = new Map(
+      rows.map((row) => [row.teacherId, row._count._all]),
+    );
+
+    const pipeline = this.redis.pipeline();
+    for (const teacherId of missing) {
+      const count = counted.get(teacherId) ?? 0;
+      counts.set(teacherId, count);
+      pipeline.hset(LESSON_COUNT_KEY, teacherId, count);
+    }
+    await pipeline.exec();
+
+    return counts;
+  }
 }
 
-function withLessonCount<T extends { _count: { teacherBookings: number } }>(
+function withLessonCount<T extends { id: string }>(
   teacher: T,
+  lessonCount: number,
 ) {
-  const { _count, ...rest } = teacher;
   return {
-    ...rest,
-    lessonCount: _count.teacherBookings,
+    ...teacher,
+    lessonCount,
   };
 }
