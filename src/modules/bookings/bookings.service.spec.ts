@@ -8,6 +8,7 @@ describe('BookingsService', () => {
   let service: BookingsService;
   const tx = {
     availability: {
+      findUnique: jest.fn(),
       findMany: jest.fn(),
     },
     booking: {
@@ -20,9 +21,6 @@ describe('BookingsService', () => {
   const prisma = {
     booking: {
       findMany: jest.fn(),
-    },
-    availability: {
-      findUnique: jest.fn(),
     },
     $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
@@ -65,7 +63,7 @@ describe('BookingsService', () => {
   describe('createBooking', () => {
     it('snapshots the teacher hourly rate as the booking price', async () => {
       const startAt = new Date('2026-07-16T01:00:00.000Z');
-      prisma.availability.findUnique.mockResolvedValue({
+      tx.availability.findUnique.mockResolvedValue({
         id: 'availability-id',
         teacherId: 'teacher-id',
         teacher: { userId: 'teacher-user-id', hourlyRate: 40 },
@@ -91,7 +89,7 @@ describe('BookingsService', () => {
     });
 
     it('rejects a booking when the teacher hourly rate is not set', async () => {
-      prisma.availability.findUnique.mockResolvedValue({
+      tx.availability.findUnique.mockResolvedValue({
         id: 'availability-id',
         teacherId: 'teacher-id',
         teacher: { userId: 'teacher-user-id', hourlyRate: null },
@@ -106,7 +104,7 @@ describe('BookingsService', () => {
           availabilityId: 'availability-id',
           lessonType: LessonType.STANDARD,
         }),
-      ).rejects.toThrow('Teacher hourly rate is not set');
+      ).rejects.toThrow("This teacher hasn't set a price yet. Please try another teacher.");
       expect(tx.booking.create).not.toHaveBeenCalled();
     });
   });
