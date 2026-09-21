@@ -54,8 +54,18 @@ export class ReviewService {
       );
     }
 
+    let review;
     try {
-      const review = await this.prisma.$transaction(async (tx) => {
+      review = await this.prisma.$transaction(async (tx) => {
+        const [teacher] = await tx.$queryRaw<
+          Array<{ averageRating: number; reviewCount: number }>
+        >(Prisma.sql`
+          SELECT "averageRating", "reviewCount"
+          FROM "TeacherProfile"
+          WHERE id = ${booking.teacherId}
+          FOR UPDATE
+        `);
+
         const createdReview = await tx.review.create({
           data: {
             bookingId: booking.id,
@@ -64,28 +74,21 @@ export class ReviewService {
           },
         });
 
-        const stats = await tx.review.aggregate({
-          where: {
-            booking: { teacherId: booking.teacherId },
-          },
-          _avg: { rating: true },
-          _count: { _all: true },
-        });
+        const reviewCount = teacher.reviewCount + 1;
+        const averageRating =
+          (teacher.averageRating * teacher.reviewCount + dto.rating) /
+          reviewCount;
 
         await tx.teacherProfile.update({
           where: { id: booking.teacherId },
           data: {
-            averageRating: stats._avg.rating ?? 0,
-            reviewCount: stats._count._all,
+            averageRating,
+            reviewCount,
           },
         });
 
         return createdReview;
       });
-
-      await this.teachersService.bustTeacherSearchCache();
-
-      return review;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -100,6 +103,10 @@ export class ReviewService {
 
       throw error;
     }
+
+    await this.teachersService.bustTeacherSearchCache();
+
+    return review;
   }
 
   async getTeacherReviews(teacherId: string, query: ReviewsQueryDto) {
