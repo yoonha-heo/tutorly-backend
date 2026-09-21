@@ -18,33 +18,40 @@ export class AvailabilityCronService {
 
   @Cron('0 1 * * *')
   async generateDailyAvailabilitySlots() {
-    const teachers = await this.prisma.teacherProfile.findMany({
-      select: {
-        id: true,
-        timezone: true,
-      },
-    });
+    try {
+      const teachers = await this.prisma.teacherProfile.findMany({
+        select: {
+          id: true,
+          timezone: true,
+        },
+      });
 
-    const targetDates = this.getTargetDates();
+      const targetDates = this.getTargetDates();
 
-    const slots = teachers.flatMap((teacher) =>
-      targetDates.flatMap((date) =>
-        this.generateSlotsForTeacher(teacher.id, teacher.timezone, date),
-      ),
-    );
+      const slots = teachers.flatMap((teacher) =>
+        targetDates.flatMap((date) =>
+          this.generateSlotsForTeacher(teacher.id, teacher.timezone, date),
+        ),
+      );
 
-    if (slots.length === 0) {
-      return;
+      if (slots.length === 0) {
+        return;
+      }
+
+      const result = await this.prisma.availability.createMany({
+        data: slots,
+        skipDuplicates: true,
+      });
+
+      this.logger.log(
+        `Requested ${slots.length} slots, inserted ${result.count} slots.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to generate daily availability slots',
+        error instanceof Error ? error.stack : undefined,
+      );
     }
-
-    const result = await this.prisma.availability.createMany({
-      data: slots,
-      skipDuplicates: true,
-    });
-
-    this.logger.log(
-      `Requested ${slots.length} slots, inserted ${result.count} slots.`,
-    );
   }
 
   private getTargetDates(): Date[] {

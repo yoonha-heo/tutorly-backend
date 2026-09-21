@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { MessageType, Prisma } from '@prisma/client';
 import Redis from 'ioredis';
 import { BusinessException } from '@/common/exceptions/business.exception';
@@ -54,6 +54,8 @@ function unreadWarmedKey(userId: string) {
 
 @Injectable()
 export class ChatsService {
+  private readonly logger = new Logger(ChatsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
@@ -142,7 +144,10 @@ export class ChatsService {
       return message;
     });
 
-    await this.incrementChannelUnread(savedMessage.channelId, savedMessage.senderId);
+    await this.incrementChannelUnread(
+      savedMessage.channelId,
+      savedMessage.senderId,
+    );
     await this.publishNewMessage(savedMessage.channelId, {
       ...savedMessage,
       meetingUrl: params.meetingUrl,
@@ -156,12 +161,23 @@ export class ChatsService {
       return { items: [] };
     }
 
-    const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
-    if (!isWarmed) {
-      await this.warmUnreadCounts(userId);
-    }
+    let unreadHash: Record<string, string> = {};
+    try {
+      const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
+      if (!isWarmed) {
+        await this.warmUnreadCounts(userId);
+      }
 
-    const unreadHash = await this.redis.hgetall(unreadHashKey(userId));
+      unreadHash = await this.redis.hgetall(unreadHashKey(userId));
+    } catch (error) {
+      this.logger.warn(
+        `Unread cache unavailable, falling back to DB: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      const unreadCounts = await this.findUnreadCounts(userId);
+      unreadHash = Object.fromEntries(
+        unreadCounts.map((row) => [row.channelId, String(row.count)]),
+      );
+    }
 
     const items = channels.map((channel) => ({
       id: channel.id,
@@ -187,28 +203,34 @@ export class ChatsService {
       );
     }
 
-    const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
-    if (!isWarmed) {
-      await this.warmUnreadCounts(userId);
-      return;
-    }
+    try {
+      const isWarmed = await this.redis.exists(unreadWarmedKey(userId));
+      if (!isWarmed) {
+        await this.warmUnreadCounts(userId);
+        return;
+      }
 
-    const previous = Number(
-      (await this.redis.hget(unreadHashKey(userId), channelId)) ?? 0,
-    );
-    if (previous <= 0) {
-      return;
-    }
+      const previous = Number(
+        (await this.redis.hget(unreadHashKey(userId), channelId)) ?? 0,
+      );
+      if (previous <= 0) {
+        return;
+      }
 
-    await this.redis
-      .pipeline()
-      .hdel(unreadHashKey(userId), channelId)
-      .decrby(unreadTotalKey(userId), previous)
-      .exec();
+      await this.redis
+        .pipeline()
+        .hdel(unreadHashKey(userId), channelId)
+        .decrby(unreadTotalKey(userId), previous)
+        .exec();
 
-    const total = Number((await this.redis.get(unreadTotalKey(userId))) ?? 0);
-    if (total < 0) {
-      await this.redis.set(unreadTotalKey(userId), 0);
+      const total = Number((await this.redis.get(unreadTotalKey(userId))) ?? 0);
+      if (total < 0) {
+        await this.redis.set(unreadTotalKey(userId), 0);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update unread cache for channel ${channelId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
     }
   }
 
@@ -250,7 +272,10 @@ export class ChatsService {
         })
       : null;
 
-    if (query.cursor && (!cursorMessage || cursorMessage.channelId !== channelId)) {
+    if (
+      query.cursor &&
+      (!cursorMessage || cursorMessage.channelId !== channelId)
+    ) {
       throw new BusinessException(
         'INVALID_CURSOR',
         'The pagination cursor is invalid.',
@@ -311,18 +336,26 @@ export class ChatsService {
       select: { userId: true },
     });
 
-    for (const member of members) {
-      const isWarmed = await this.redis.exists(unreadWarmedKey(member.userId));
-      if (!isWarmed) {
-        await this.warmUnreadCounts(member.userId);
-        continue;
-      }
+    try {
+      for (const member of members) {
+        const isWarmed = await this.redis.exists(
+          unreadWarmedKey(member.userId),
+        );
+        if (!isWarmed) {
+          await this.warmUnreadCounts(member.userId);
+          continue;
+        }
 
-      await this.redis
-        .pipeline()
-        .hincrby(unreadHashKey(member.userId), channelId, 1)
-        .incr(unreadTotalKey(member.userId))
-        .exec();
+        await this.redis
+          .pipeline()
+          .hincrby(unreadHashKey(member.userId), channelId, 1)
+          .incr(unreadTotalKey(member.userId))
+          .exec();
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to increment unread for channel ${channelId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
     }
   }
 
@@ -381,18 +414,22 @@ export class ChatsService {
     otherUserId: string,
     bookingId?: string,
   ) {
-    const channel = await tx.channel.findFirst({
-      where: {
-        AND: [
-          { members: { some: { userId } } },
-          { members: { some: { userId: otherUserId } } },
-        ],
-      },
+    const leftId = userId < otherUserId ? userId : otherUserId;
+    const rightId = userId < otherUserId ? otherUserId : userId;
+    const pairKey = `${leftId}:${rightId}`;
+
+    await tx.$executeRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${leftId}), hashtext(${rightId}))`,
+    );
+
+    const channel = await tx.channel.findUnique({
+      where: { pairKey },
     });
 
     if (!channel) {
       return tx.channel.create({
         data: {
+          pairKey,
           bookingId,
           members: {
             create: [{ userId }, { userId: otherUserId }],
@@ -411,13 +448,23 @@ export class ChatsService {
     });
   }
 
-  private async publishNewMessage(channelId: string, message: PublishedMessage) {
-    await this.redis.publish(
-      'SOCKET_EVENTS',
-      JSON.stringify({
-        event: 'NEW_MESSAGE',
-        data: { channelId, message },
-      }),
-    );
+  private async publishNewMessage(
+    channelId: string,
+    message: PublishedMessage,
+  ) {
+    try {
+      await this.redis.publish(
+        'SOCKET_EVENTS',
+        JSON.stringify({
+          event: 'NEW_MESSAGE',
+          data: { channelId, message },
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish NEW_MESSAGE for channel ${channelId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 }

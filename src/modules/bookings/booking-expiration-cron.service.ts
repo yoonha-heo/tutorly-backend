@@ -11,50 +11,11 @@ export class BookingExpirationCronService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   async expirePendingBookings(): Promise<void> {
-    const now = new Date();
+    try {
+      const now = new Date();
 
-    const expiredBookings = await this.prisma.booking.findMany({
-      where: {
-        status: BookingStatus.PENDING_PAYMENT,
-        OR: [
-          {
-            paymentExpiresAt: {
-              lte: now,
-            },
-          },
-          {
-            lessonStartAt: {
-              lte: now,
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        lessonStartAt: 'asc',
-      },
-      take: 100,
-    });
-
-    for (const booking of expiredBookings) {
-      await this.expirePendingBooking(booking.id, now);
-    }
-
-    if (expiredBookings.length > 0) {
-      this.logger.log(`Processed ${expiredBookings.length} expired bookings.`);
-    }
-  }
-
-  private async expirePendingBooking(
-    bookingId: string,
-    now: Date,
-  ): Promise<void> {
-    return this.prisma.$transaction(async (tx) => {
-      const updateResult = await tx.booking.updateMany({
+      const expiredBookings = await this.prisma.booking.findMany({
         where: {
-          id: bookingId,
           status: BookingStatus.PENDING_PAYMENT,
           OR: [
             {
@@ -69,20 +30,70 @@ export class BookingExpirationCronService {
             },
           ],
         },
-        data: {
-          status: BookingStatus.EXPIRED,
+        select: {
+          id: true,
         },
+        orderBy: {
+          lessonStartAt: 'asc',
+        },
+        take: 100,
       });
 
-      if (updateResult.count === 0) {
+      if (expiredBookings.length === 0) {
         return;
       }
 
-      await tx.availabilityBlock.deleteMany({
-        where: {
-          bookingId,
-        },
+      const expiredIds = expiredBookings.map((booking) => booking.id);
+
+      const expiredCount = await this.prisma.$transaction(async (tx) => {
+        const updateResult = await tx.booking.updateMany({
+          where: {
+            id: {
+              in: expiredIds,
+            },
+            status: BookingStatus.PENDING_PAYMENT,
+            OR: [
+              {
+                paymentExpiresAt: {
+                  lte: now,
+                },
+              },
+              {
+                lessonStartAt: {
+                  lte: now,
+                },
+              },
+            ],
+          },
+          data: {
+            status: BookingStatus.EXPIRED,
+          },
+        });
+
+        if (updateResult.count > 0) {
+          await tx.availabilityBlock.deleteMany({
+            where: {
+              bookingId: {
+                in: expiredIds,
+              },
+              booking: {
+                status: BookingStatus.EXPIRED,
+              },
+            },
+          });
+        }
+
+        return updateResult.count;
       });
-    });
+
+      if (expiredCount > 0) {
+        this.logger.log(`Processed ${expiredCount} expired bookings.`);
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to expire pending bookings',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 }

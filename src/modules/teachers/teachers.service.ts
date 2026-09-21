@@ -1,6 +1,11 @@
 import { createHash } from 'crypto';
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { BookingStatus, Language, Specialty, TeacherStatus } from '@prisma/client';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BookingStatus,
+  Language,
+  Specialty,
+  TeacherStatus,
+} from '@prisma/client';
 import Redis from 'ioredis';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from 'src/database/prisma/prisma.service';
@@ -16,7 +21,14 @@ const CATALOG_TTL_SECONDS = 60 * 60 * 6;
 const SEARCH_TTL_SECONDS = 60;
 
 const TEACHER_CARD_INCLUDE = {
-  user: true,
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      profileImage: true,
+    },
+  },
   teacherLanguages: {
     include: { language: true },
   },
@@ -36,6 +48,8 @@ type CachedTeacherSearchPage = {
 
 @Injectable()
 export class TeachersService {
+  private readonly logger = new Logger(TeachersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
@@ -281,21 +295,29 @@ export class TeachersService {
     const limit = Number(query.limit ?? 6);
     const skip = (page - 1) * limit;
     const cacheKey = await this.buildSearchCacheKey(query, page, limit);
-    const cached = await this.redis.get(cacheKey);
+    const cached = await this.readCache(cacheKey);
 
     if (cached) {
-      const result = JSON.parse(cached) as CachedTeacherSearchPage;
-      const lessonCounts = await this.getLessonCounts(
-        result.items.map((item) => item.id),
-      );
+      try {
+        const result = JSON.parse(cached) as CachedTeacherSearchPage;
+        const lessonCounts = await this.getLessonCounts(
+          result.items.map((item) => item.id),
+        );
 
-      return {
-        ...result,
-        items: result.items.map((item) => ({
-          ...item,
-          lessonCount: lessonCounts.get(item.id) ?? 0,
-        })),
-      };
+        return {
+          ...result,
+          items: result.items.map((item) => ({
+            ...item,
+            lessonCount: lessonCounts.get(item.id) ?? 0,
+          })),
+        };
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+
+        this.logger.warn(`Corrupt teacher search cache for ${cacheKey}`);
+      }
     }
 
     const where = this.buildSearchWhere(query);
@@ -326,20 +348,23 @@ export class TeachersService {
       nextPage: hasNextPage ? page + 1 : null,
     };
 
-    await this.redis.set(
-      cacheKey,
-      JSON.stringify(result),
-      'EX',
-      SEARCH_TTL_SECONDS,
-    );
+    await this.writeCache(cacheKey, JSON.stringify(result), SEARCH_TTL_SECONDS);
 
     return result;
   }
 
   async getAvailableLanguages() {
-    const cached = await this.redis.get(CATALOG_LANGUAGES_KEY);
+    const cached = await this.readCache(CATALOG_LANGUAGES_KEY);
     if (cached) {
-      return JSON.parse(cached) as Language[];
+      try {
+        return JSON.parse(cached) as Language[];
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+
+        this.logger.warn('Corrupt language catalog cache');
+      }
     }
 
     const languages = await this.prisma.language.findMany({
@@ -348,10 +373,9 @@ export class TeachersService {
       },
     });
 
-    await this.redis.set(
+    await this.writeCache(
       CATALOG_LANGUAGES_KEY,
       JSON.stringify(languages),
-      'EX',
       CATALOG_TTL_SECONDS,
     );
 
@@ -359,9 +383,17 @@ export class TeachersService {
   }
 
   async getAvailableSpecialties() {
-    const cached = await this.redis.get(CATALOG_SPECIALTIES_KEY);
+    const cached = await this.readCache(CATALOG_SPECIALTIES_KEY);
     if (cached) {
-      return JSON.parse(cached) as Specialty[];
+      try {
+        return JSON.parse(cached) as Specialty[];
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+
+        this.logger.warn('Corrupt specialty catalog cache');
+      }
     }
 
     const specialties = await this.prisma.specialty.findMany({
@@ -370,10 +402,9 @@ export class TeachersService {
       },
     });
 
-    await this.redis.set(
+    await this.writeCache(
       CATALOG_SPECIALTIES_KEY,
       JSON.stringify(specialties),
-      'EX',
       CATALOG_TTL_SECONDS,
     );
 
@@ -449,16 +480,28 @@ export class TeachersService {
   }
 
   async bustTeacherSearchCache() {
-    await this.redis.incr(SEARCH_VERSION_KEY);
+    try {
+      await this.redis.incr(SEARCH_VERSION_KEY);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to bust teacher search cache: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 
   async incrementLessonCount(teacherId: string) {
-    const exists = await this.redis.hexists(LESSON_COUNT_KEY, teacherId);
-    if (!exists) {
-      return;
-    }
+    try {
+      const exists = await this.redis.hexists(LESSON_COUNT_KEY, teacherId);
+      if (!exists) {
+        return;
+      }
 
-    await this.redis.hincrby(LESSON_COUNT_KEY, teacherId, 1);
+      await this.redis.hincrby(LESSON_COUNT_KEY, teacherId, 1);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to increment lesson count for ${teacherId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 
   private buildSearchWhere(query: SearchTeachersQueryDto) {
@@ -505,7 +548,7 @@ export class TeachersService {
     page: number,
     limit: number,
   ) {
-    const version = (await this.redis.get(SEARCH_VERSION_KEY)) ?? '0';
+    const version = (await this.readCache(SEARCH_VERSION_KEY)) ?? '0';
     const filterHash = createHash('sha1')
       .update(
         JSON.stringify({
@@ -525,7 +568,15 @@ export class TeachersService {
       return counts;
     }
 
-    const cached = await this.redis.hmget(LESSON_COUNT_KEY, ...teacherIds);
+    let cached: Array<string | null>;
+    try {
+      cached = await this.redis.hmget(LESSON_COUNT_KEY, ...teacherIds);
+    } catch (error) {
+      this.logger.warn(
+        `Redis lesson count read failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      cached = teacherIds.map(() => null);
+    }
     const missing: string[] = [];
 
     teacherIds.forEach((teacherId, index) => {
@@ -554,15 +605,49 @@ export class TeachersService {
       rows.map((row) => [row.teacherId, row._count._all]),
     );
 
-    const pipeline = this.redis.pipeline();
-    for (const teacherId of missing) {
-      const count = counted.get(teacherId) ?? 0;
-      counts.set(teacherId, count);
-      pipeline.hset(LESSON_COUNT_KEY, teacherId, count);
+    try {
+      const pipeline = this.redis.pipeline();
+      for (const teacherId of missing) {
+        const count = counted.get(teacherId) ?? 0;
+        counts.set(teacherId, count);
+        pipeline.hset(LESSON_COUNT_KEY, teacherId, count);
+      }
+      await pipeline.exec();
+    } catch (error) {
+      this.logger.warn(
+        `Redis lesson count write failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      for (const teacherId of missing) {
+        counts.set(teacherId, counted.get(teacherId) ?? 0);
+      }
     }
-    await pipeline.exec();
 
     return counts;
+  }
+
+  private async readCache(key: string): Promise<string | null> {
+    try {
+      return await this.redis.get(key);
+    } catch (error) {
+      this.logger.warn(
+        `Redis read failed for ${key}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  private async writeCache(
+    key: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<void> {
+    try {
+      await this.redis.set(key, value, 'EX', ttlSeconds);
+    } catch (error) {
+      this.logger.warn(
+        `Redis write failed for ${key}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
   }
 }
 
