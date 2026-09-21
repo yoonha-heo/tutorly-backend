@@ -37,6 +37,12 @@ export class TeachersController {
     return this.teachersService.updateTeacherProfile(user.userId, dto);
   }
 
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  getMyTeacherProfile(@CurrentUser() user: JwtPayload) {
+    return this.teachersService.getMyTeacherProfile(user.userId);
+  }
+
   @Get()
   searchTeachers(@Query() qeury: SearchTeachersQueryDto) {
     return this.teachersService.searchTeachers(qeury);

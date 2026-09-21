@@ -1,11 +1,11 @@
 import { UserRole } from '@prisma/client';
-import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsString } from 'class-validator';
 
 export class GoogleLoginDto {
   @IsString()
   @IsNotEmpty()
   idToken!: string;
 
-  @IsEnum(UserRole)
+  @IsIn([UserRole.STUDENT, UserRole.TEACHER])
   role!: UserRole;
 }

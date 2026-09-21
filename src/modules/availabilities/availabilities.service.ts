@@ -1,7 +1,7 @@
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { BookingStatus } from '@prisma/client';
+import { BookingStatus, TeacherStatus } from '@prisma/client';
 import { UpdateAvailabilitiesDto } from './dto/update-availabilities.dto';
 
 @Injectable()
@@ -56,6 +56,14 @@ export class AvailabilitiesService {
       throw new BusinessException(
         'TEACHER_PROFILE_REQUIRED',
         'Please create a teacher profile first.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (teacherProfile.status !== TeacherStatus.APPROVED) {
+      throw new BusinessException(
+        'TEACHER_PROFILE_NOT_APPROVED',
+        'You can manage your schedule after your profile is approved.',
         HttpStatus.FORBIDDEN,
       );
     }

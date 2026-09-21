@@ -71,6 +71,7 @@ export class AuthService {
           select: {
             id: true,
             status: true,
+            rejectionReason: true,
           },
         },
       },
@@ -163,6 +164,7 @@ export class AuthService {
           select: {
             id: true,
             status: true,
+            rejectionReason: true,
           },
         },
       },

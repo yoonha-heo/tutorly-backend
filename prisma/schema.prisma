@@ -41,6 +41,7 @@ model TeacherProfile {
   profileImageUrl String?
   hourlyRate      Int?
   status          TeacherStatus @default(PENDING)
+  rejectionReason String?
   averageRating   Float         @default(0)
   reviewCount     Int           @default(0)
 

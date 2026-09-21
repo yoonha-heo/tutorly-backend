@@ -153,6 +153,9 @@ export class TeachersService {
           bio: dto.bio,
           profileImageUrl: dto.profileImageUrl,
           hourlyRate: dto.hourlyRate,
+          ...(profile.status === TeacherStatus.REJECTED && {
+            status: TeacherStatus.PENDING,
+          }),
         },
       });
 
@@ -409,6 +412,26 @@ export class TeachersService {
     );
 
     return specialties;
+  }
+
+  async getMyTeacherProfile(userId: string) {
+    const teacher = await this.prisma.teacherProfile.findUnique({
+      where: { userId },
+      include: TEACHER_CARD_INCLUDE,
+    });
+
+    if (!teacher) {
+      throw new BusinessException(
+        'TEACHER_PROFILE_NOT_FOUND',
+        'Teacher profile not found. Please create one first.',
+        HttpStatus.NOT_FOUND,
+        { userId },
+      );
+    }
+
+    const lessonCounts = await this.getLessonCounts([teacher.id]);
+
+    return withLessonCount(teacher, lessonCounts.get(teacher.id) ?? 0);
   }
 
   async findTeacherById(id: string) {
