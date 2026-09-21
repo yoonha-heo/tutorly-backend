@@ -224,6 +224,7 @@ model WebhookEvent {
 model Channel {
   id        String   @id @default(uuid())
 
+  pairKey   String?  @unique
   bookingId String?  @unique
   booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
