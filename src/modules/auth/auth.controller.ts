@@ -78,11 +78,16 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const tokens = await this.authService.refresh(readCookie(req, 'refreshToken'));
-
-    setAuthCookies(res, tokens);
-
-    return { success: true };
+    try {
+      const tokens = await this.authService.refresh(
+        readCookie(req, 'refreshToken'),
+      );
+      setAuthCookies(res, tokens);
+      return { success: true };
+    } catch (error) {
+      clearAuthCookies(res);
+      throw error;
+    }
   }
 
   @Get('me')
