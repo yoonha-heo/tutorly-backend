@@ -56,6 +56,7 @@ model TeacherProfile {
   updatedAt DateTime @updatedAt
 
   @@index([headline(ops: raw("gin_trgm_ops"))], type: Gin, name: "idx_teacher_profile_headline_trgm")
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model Language {
@@ -150,10 +151,15 @@ model Booking {
   @@index([availabilityId])
   // Student My Bookings
   @@index([studentId, lessonStartAt])
+  @@index([studentId, createdAt(sort: Desc)])
   // Teacher Dashboard
   @@index([teacherId, lessonStartAt])
+  @@index([teacherId, status])
   // 만료 예약 정리
   @@index([status, paymentExpiresAt])
+  @@index([status, lessonStartAt])
+  // 종료 수업 완료 처리
+  @@index([status, lessonEndAt])
 }
 
 model AvailabilityBlock {
