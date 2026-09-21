@@ -1,7 +1,7 @@
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OAuth2Client } from 'google-auth-library';
+import { OAuth2Client, LoginTicket } from 'google-auth-library';
 import { AuthProvider, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import Redis from 'ioredis';
@@ -30,6 +30,7 @@ function denyKey(jti: string) {
 @Injectable()
 export class AuthService {
   private readonly googleClient: OAuth2Client;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,7 +100,9 @@ export class AuthService {
       );
     }
 
-    const userId = await this.redis.get(refreshKey(refreshToken));
+    const userId = await this.authRedis(() =>
+      this.redis.get(refreshKey(refreshToken)),
+    );
     if (!userId) {
       throw new BusinessException(
         'REFRESH_TOKEN_INVALID',
@@ -114,7 +117,7 @@ export class AuthService {
     });
 
     if (!user) {
-      await this.redis.del(refreshKey(refreshToken));
+      await this.authRedis(() => this.redis.del(refreshKey(refreshToken)));
       throw new BusinessException(
         'USER_NOT_FOUND',
         "Your account wasn't found. Please sign in again.",
@@ -123,18 +126,27 @@ export class AuthService {
       );
     }
 
-    await this.redis.del(refreshKey(refreshToken));
+    await this.authRedis(() => this.redis.del(refreshKey(refreshToken)));
 
     return this.issueAuthTokens(user.id, user.role);
   }
 
-  async logout(accessToken: string | undefined, refreshToken: string | undefined) {
+  async logout(
+    accessToken: string | undefined,
+    refreshToken: string | undefined,
+  ) {
     if (accessToken) {
       await this.denyAccessToken(accessToken);
     }
 
     if (refreshToken) {
-      await this.redis.del(refreshKey(refreshToken));
+      try {
+        await this.redis.del(refreshKey(refreshToken));
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete refresh token on logout: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
     }
   }
 
@@ -186,14 +198,30 @@ export class AuthService {
     );
 
     const refreshToken = randomUUID();
-    await this.redis.set(
-      refreshKey(refreshToken),
-      userId,
-      'EX',
-      REFRESH_TOKEN_TTL_SECONDS,
+    await this.authRedis(() =>
+      this.redis.set(
+        refreshKey(refreshToken),
+        userId,
+        'EX',
+        REFRESH_TOKEN_TTL_SECONDS,
+      ),
     );
 
     return { accessToken, refreshToken };
+  }
+
+  private async authRedis<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      throw new BusinessException(
+        'AUTH_STORE_UNAVAILABLE',
+        'Please try again.',
+        HttpStatus.SERVICE_UNAVAILABLE,
+        undefined,
+        error,
+      );
+    }
   }
 
   private async denyAccessToken(accessToken: string) {
@@ -221,30 +249,19 @@ export class AuthService {
   }
 
   private async verifyGoogleIdToken(idToken: string) {
+    let ticket: LoginTicket;
     try {
-      const ticket = await this.googleClient.verifyIdToken({
+      ticket = await this.googleClient.verifyIdToken({
         idToken,
         audience: this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
       });
-
-      const payload = ticket.getPayload();
-
-      if (!payload?.sub || !payload.email) {
-        throw new BusinessException(
-          'INVALID_GOOGLE_TOKEN',
-          'Google sign-in failed. Please try again.',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      return {
-        providerId: payload.sub,
-        email: payload.email,
-        name: payload.name ?? null,
-        profileImage: payload.picture ?? null,
-      };
     } catch (error) {
-      if (error instanceof BusinessException) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith(
+          'Failed to retrieve verification certificates:',
+        )
+      ) {
         throw error;
       }
 
@@ -252,7 +269,26 @@ export class AuthService {
         'INVALID_GOOGLE_TOKEN',
         'Google sign-in failed. Please try again.',
         HttpStatus.UNAUTHORIZED,
+        undefined,
+        error,
       );
     }
+
+    const payload = ticket.getPayload();
+
+    if (!payload?.sub || !payload.email) {
+      throw new BusinessException(
+        'INVALID_GOOGLE_TOKEN',
+        'Google sign-in failed. Please try again.',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    return {
+      providerId: payload.sub,
+      email: payload.email,
+      name: payload.name ?? null,
+      profileImage: payload.picture ?? null,
+    };
   }
 }
