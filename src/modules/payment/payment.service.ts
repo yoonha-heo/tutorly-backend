@@ -94,10 +94,8 @@ export class PaymentService {
     );
 
     if (!paymentIntent.client_secret) {
-      throw new BusinessException(
-        'PAYMENT_INTENT_SECRET_MISSING',
-        'Payment secret missing',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+      throw new Error(
+        `Stripe PaymentIntent ${paymentIntent.id} is missing client_secret`,
       );
     }
 
@@ -165,100 +163,92 @@ export class PaymentService {
       receiptUrl = charge.receipt_url;
     }
 
-    try {
-      const payment = await this.prisma.payment.findUnique({
-        where: { paymentIntentId: paymentIntent.id },
-        include: { booking: true },
-      });
+    const payment = await this.prisma.payment.findUnique({
+      where: { paymentIntentId: paymentIntent.id },
+      include: {
+        booking: {
+          select: {
+            lessonEndAt: true,
+          },
+        },
+      },
+    });
 
-      if (!payment) {
-        throw new BusinessException(
-          'PAYMENT_NOT_FOUND',
-          'Payment not found for this intent.',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-
-      if (payment.status === PaymentStatus.PAID) {
-        return { received: true };
-      }
-
-      const meeting = await this.meetingService.createRoom(
-        payment.booking.lessonEndAt,
+    if (!payment) {
+      throw new Error(
+        `Payment not found for PaymentIntent ${paymentIntent.id}`,
       );
+    }
 
-      const result = await this.prisma.$transaction(async (tx) => {
-        const [lockedPayment] = await tx.$queryRaw<
-          Array<{ id: string; bookingId: string; status: PaymentStatus }>
-        >(Prisma.sql`
+    if (payment.status === PaymentStatus.PAID) {
+      return { received: true };
+    }
+
+    const meeting = await this.meetingService.createRoom(
+      payment.booking.lessonEndAt,
+    );
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const [lockedPayment] = await tx.$queryRaw<
+        Array<{ id: string; bookingId: string; status: PaymentStatus }>
+      >(Prisma.sql`
           SELECT id, "bookingId", status FROM "Payment"
           WHERE "paymentIntentId" = ${paymentIntent.id}
           FOR UPDATE
         `);
 
-        if (lockedPayment.status === PaymentStatus.PAID) {
-          return;
-        }
+      if (lockedPayment.status === PaymentStatus.PAID) {
+        return;
+      }
 
-        await tx.$queryRaw(
-          Prisma.sql`SELECT id FROM "Booking" WHERE id = ${lockedPayment.bookingId} FOR UPDATE`,
-        );
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM "Booking" WHERE id = ${lockedPayment.bookingId} FOR UPDATE`,
+      );
 
-        await tx.payment.update({
-          where: { id: lockedPayment.id },
-          data: {
-            status: PaymentStatus.PAID,
-            paidAt: new Date(),
-            receiptUrl,
-          },
-        });
-
-        const confirmedBooking = await tx.booking.update({
-          where: { id: lockedPayment.bookingId },
-          data: {
-            status: BookingStatus.CONFIRMED,
-            meetingUrl: meeting.roomUrl,
-          },
-          include: {
-            teacher: {
-              select: { userId: true },
-            },
-          },
-        });
-
-        await tx.webhookEvent.create({
-          data: {
-            eventId: event.id,
-            eventType: event.type,
-            payload: event as unknown as Prisma.InputJsonValue,
-          },
-        });
-
-        return confirmedBooking;
+      await tx.payment.update({
+        where: { id: lockedPayment.id },
+        data: {
+          status: PaymentStatus.PAID,
+          paidAt: new Date(),
+          receiptUrl,
+        },
       });
 
-      if (result) {
-        await this.chatsService.notifyLessonConfirmed({
-          studentId: result.studentId,
-          teacherUserId: result.teacher.userId,
-          bookingId: result.id,
-          lessonStartAt: result.lessonStartAt,
+      const confirmedBooking = await tx.booking.update({
+        where: { id: lockedPayment.bookingId },
+        data: {
+          status: BookingStatus.CONFIRMED,
           meetingUrl: meeting.roomUrl,
-        });
-      }
+        },
+        include: {
+          teacher: {
+            select: { userId: true },
+          },
+        },
+      });
 
-      return { received: true };
-    } catch (error) {
-      if (error instanceof BusinessException) {
-        throw error;
-      }
+      await tx.webhookEvent.create({
+        data: {
+          eventId: event.id,
+          eventType: event.type,
+          payload: event as unknown as Prisma.InputJsonValue,
+        },
+      });
 
-      throw new BusinessException(
-        'STRIPE_WEBHOOK_ERROR',
-        'Error processing Stripe webhook.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      return confirmedBooking;
+    });
+
+    if (result) {
+      await this.chatsService.notifyLessonConfirmed({
+        studentId: result.studentId,
+        teacherUserId: result.teacher.userId,
+        bookingId: result.id,
+        lessonStartAt: result.lessonStartAt,
+        meetingUrl: meeting.roomUrl,
+      });
     }
+
+    return { received: true };
   }
 
   private async recordWebhookEvent(event: Stripe.Event) {

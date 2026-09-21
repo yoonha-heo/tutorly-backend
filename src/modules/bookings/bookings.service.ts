@@ -2,7 +2,7 @@ import { PrismaService } from '@/database/prisma/prisma.service';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { Booking, BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
 import {
   LESSON_DURATION_BY_TYPE,
   PAYMENT_EXPIRES_IN_MINUTES,
@@ -22,7 +22,12 @@ export class BookingsService {
       where: { studentId: userId },
       include: {
         teacher: {
-          include: {
+          select: {
+            id: true,
+            timezone: true,
+            headline: true,
+            profileImageUrl: true,
+            hourlyRate: true,
             user: {
               select: {
                 id: true,
@@ -44,12 +49,21 @@ export class BookingsService {
   async createBooking(studentId: string, dto: CreateBookingDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const availability = await this.prisma.availability.findUnique({
+        const availability = await tx.availability.findUnique({
           where: {
             id: dto.availabilityId,
           },
-          include: {
-            teacher: true,
+          select: {
+            id: true,
+            teacherId: true,
+            startAt: true,
+            isOpen: true,
+            teacher: {
+              select: {
+                userId: true,
+                hourlyRate: true,
+              },
+            },
             blocks: {
               where: {
                 booking: {
@@ -61,6 +75,10 @@ export class BookingsService {
                   },
                 },
               },
+              select: {
+                bookingId: true,
+              },
+              take: 1,
             },
           },
         });
@@ -149,14 +167,6 @@ export class BookingsService {
               Date.now() + PAYMENT_EXPIRES_IN_MINUTES * 60 * 1000,
             ),
           },
-          include: {
-            availability: true,
-            teacher: {
-              include: {
-                user: true,
-              },
-            },
-          },
         });
 
         await tx.availabilityBlock.createMany({
@@ -185,9 +195,17 @@ export class BookingsService {
   async cancelBooking(bookingId: string, userId: string) {
     // [1단계] 동시성 방어: 1차 DB 락으로 중복 요청 즉시 튕겨내기
     const booking = await this.prisma.$transaction(async (tx) => {
-      const [locked] = await tx.$queryRaw<Booking[]>`
-      SELECT * FROM "Booking" WHERE id = ${bookingId} AND "studentId" = ${userId} FOR UPDATE
-    `;
+      const [locked] = await tx.$queryRaw<
+        Array<{
+          status: BookingStatus;
+          lessonStartAt: Date;
+        }>
+      >(Prisma.sql`
+        SELECT status, "lessonStartAt"
+        FROM "Booking"
+        WHERE id = ${bookingId} AND "studentId" = ${userId}
+        FOR UPDATE
+      `);
       if (!locked)
         throw new BusinessException(
           'BOOKING_NOT_FOUND',
@@ -253,7 +271,9 @@ export class BookingsService {
       throw new BusinessException(
         'BOOKING_CANCEL_FAILED',
         'Payment cancellation failed. Please try again.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+        HttpStatus.BAD_GATEWAY,
+        undefined,
+        error,
       );
     }
 

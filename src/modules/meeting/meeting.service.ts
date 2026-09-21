@@ -1,6 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BusinessException } from '@/common/exceptions/business.exception';
 
 const WHEREBY_MEETINGS_URL = 'https://api.whereby.dev/v1/meetings';
 const ROOM_TTL_AFTER_LESSON_MS = 2 * 60 * 60 * 1000;
@@ -37,10 +36,8 @@ export class MeetingService {
     });
 
     if (!response.ok) {
-      throw new BusinessException(
-        'MEETING_CREATE_FAILED',
-        'Failed to create the meeting room.',
-        HttpStatus.BAD_GATEWAY,
+      throw new Error(
+        `Whereby createRoom failed with status ${response.status}`,
       );
     }
 
