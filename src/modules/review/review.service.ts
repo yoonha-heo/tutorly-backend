@@ -3,20 +3,80 @@ import { BookingStatus, Prisma } from '@prisma/client';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
+import {
+  type ReceivedReviewItem,
+  type ReviewListResponse,
+  type WrittenReviewItem,
+} from './dto/review-list.dto';
 import { ReviewsQueryDto } from './dto/reviews-query.dto';
 import { TeachersService } from '@/modules/teachers/teachers.service';
+
+const RECEIVED_REVIEW_SELECT = {
+  id: true,
+  rating: true,
+  comment: true,
+  createdAt: true,
+  booking: {
+    select: {
+      id: true,
+      lessonStartAt: true,
+      lessonEndAt: true,
+      student: {
+        select: {
+          id: true,
+          name: true,
+          profileImage: true,
+        },
+      },
+    },
+  },
+} as const;
+
+const WRITTEN_REVIEW_SELECT = {
+  id: true,
+  rating: true,
+  comment: true,
+  createdAt: true,
+  booking: {
+    select: {
+      id: true,
+      lessonStartAt: true,
+      lessonEndAt: true,
+      teacher: {
+        select: {
+          id: true,
+          headline: true,
+          profileImageUrl: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 @Injectable()
 export class ReviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teachersService: TeachersService,
-  ) {}
+  ) { }
 
   async createReview(userId: string, dto: CreateReviewDto) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: dto.bookingId },
-      include: { review: true },
+      select: {
+        id: true,
+        studentId: true,
+        teacherId: true,
+        status: true,
+        lessonEndAt: true,
+        review: { select: { id: true } },
+      },
     });
 
     if (!booking) {
@@ -87,6 +147,11 @@ export class ReviewService {
           },
         });
 
+        await tx.user.update({
+          where: { id: booking.studentId },
+          data: { reviewCount: { increment: 1 } },
+        });
+
         return createdReview;
       });
     } catch (error) {
@@ -109,42 +174,42 @@ export class ReviewService {
     return review;
   }
 
-  async getTeacherReviews(teacherId: string, query: ReviewsQueryDto) {
+  async getTeacherReviews(
+    teacherId: string,
+    query: ReviewsQueryDto,
+  ): Promise<ReviewListResponse<ReceivedReviewItem>> {
     const page = query.page ?? 1;
-    const limit = query.limit ?? 4;
+    const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
-    const where = { booking: { teacherId } };
 
-    const [items, totalCount] = await this.prisma.$transaction([
-      this.prisma.review.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          booking: {
-            select: {
-              id: true,
-              lessonStartAt: true,
-              lessonEndAt: true,
-              student: {
-                select: {
-                  id: true,
-                  name: true,
-                  profileImage: true,
-                },
-              },
-            },
-          },
-        },
+    const [reviews, teacher] = await Promise.all([
+      this.findReceivedReviews(teacherId, skip, limit),
+      this.prisma.teacherProfile.findUnique({
+        where: { id: teacherId },
+        select: { reviewCount: true },
       }),
-      this.prisma.review.count({ where }),
     ]);
 
+    const totalCount = teacher?.reviewCount ?? 0;
     const hasNextPage = page * limit < totalCount;
 
     return {
-      items,
+      items: reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        booking: {
+          id: review.booking.id,
+          lessonStartAt: review.booking.lessonStartAt,
+          lessonEndAt: review.booking.lessonEndAt,
+          student: {
+            id: review.booking.student.id,
+            name: review.booking.student.name,
+            profileImage: review.booking.student.profileImage,
+          },
+        },
+      })),
       page,
       limit,
       totalCount,
@@ -153,53 +218,120 @@ export class ReviewService {
     };
   }
 
-  async getMyReviews(studentId: string, query: ReviewsQueryDto) {
+  async getMyTeachingReviews(
+    userId: string,
+    query: ReviewsQueryDto,
+  ): Promise<ReviewListResponse<ReceivedReviewItem>> {
+    const teacherProfile = await this.prisma.teacherProfile.findUnique({
+      where: { userId },
+      select: { id: true, reviewCount: true },
+    });
+
+    if (!teacherProfile) {
+      throw new BusinessException(
+        'TEACHER_PROFILE_REQUIRED',
+        'Please create a teacher profile first.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
     const page = query.page ?? 1;
-    const limit = query.limit ?? 4;
+    const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
-    const where = { booking: { studentId } };
-
-    const [items, totalCount] = await this.prisma.$transaction([
-      this.prisma.review.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          booking: {
-            select: {
-              id: true,
-              lessonStartAt: true,
-              lessonEndAt: true,
-              teacher: {
-                select: {
-                  id: true,
-                  headline: true,
-                  profileImageUrl: true,
-                  user: {
-                    select: {
-                      id: true,
-                      name: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      }),
-      this.prisma.review.count({ where }),
-    ]);
-
+    const reviews = await this.findReceivedReviews(
+      teacherProfile.id,
+      skip,
+      limit,
+    );
+    const totalCount = teacherProfile.reviewCount;
     const hasNextPage = page * limit < totalCount;
 
     return {
-      items,
+      items: reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        booking: {
+          id: review.booking.id,
+          lessonStartAt: review.booking.lessonStartAt,
+          lessonEndAt: review.booking.lessonEndAt,
+          student: {
+            id: review.booking.student.id,
+            name: review.booking.student.name,
+            profileImage: review.booking.student.profileImage,
+          },
+        },
+      })),
       page,
       limit,
       totalCount,
       hasNextPage,
       nextPage: hasNextPage ? page + 1 : null,
     };
+  }
+
+  async getMyReviews(
+    studentId: string,
+    query: ReviewsQueryDto,
+  ): Promise<ReviewListResponse<WrittenReviewItem>> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const [reviews, student] = await Promise.all([
+      this.prisma.review.findMany({
+        where: { booking: { studentId } },
+        skip,
+        take: limit,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: WRITTEN_REVIEW_SELECT,
+      }),
+      this.prisma.user.findUnique({
+        where: { id: studentId },
+        select: { reviewCount: true },
+      }),
+    ]);
+
+    const totalCount = student?.reviewCount ?? 0;
+    const hasNextPage = page * limit < totalCount;
+
+    return {
+      items: reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        booking: {
+          id: review.booking.id,
+          lessonStartAt: review.booking.lessonStartAt,
+          lessonEndAt: review.booking.lessonEndAt,
+          teacher: {
+            id: review.booking.teacher.id,
+            headline: review.booking.teacher.headline,
+            profileImageUrl: review.booking.teacher.profileImageUrl,
+            user: {
+              id: review.booking.teacher.user.id,
+              name: review.booking.teacher.user.name,
+            },
+          },
+        },
+      })),
+      page,
+      limit,
+      totalCount,
+      hasNextPage,
+      nextPage: hasNextPage ? page + 1 : null,
+    };
+  }
+
+  private findReceivedReviews(teacherId: string, skip: number, take: number) {
+    return this.prisma.review.findMany({
+      where: { booking: { teacherId } },
+      skip,
+      take,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: RECEIVED_REVIEW_SELECT,
+    });
   }
 }

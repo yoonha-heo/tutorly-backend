@@ -19,6 +19,15 @@ export class ReviewController {
     return this.reviewService.getMyReviews(user.userId, query);
   }
 
+  @Get('teaching')
+  @UseGuards(JwtAuthGuard)
+  getMyTeachingReviews(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: ReviewsQueryDto,
+  ) {
+    return this.reviewService.getMyTeachingReviews(user.userId, query);
+  }
+
   @Get('teacher/:teacherId')
   getTeacherReviews(
     @Param('teacherId') teacherId: string,
