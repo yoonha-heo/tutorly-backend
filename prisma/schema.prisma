@@ -17,6 +17,8 @@ model User {
   providerId String
   role       UserRole     @default(STUDENT)
 
+  reviewCount Int @default(0) // reviews written by this user
+
   teacherProfile TeacherProfile?
 
   studentBookings Booking[] @relation("StudentBookings")
@@ -210,6 +212,9 @@ model Review {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Student / teacher review list pages
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model WebhookEvent {
