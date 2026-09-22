@@ -7,6 +7,7 @@ describe('BookingsController', () => {
   let controller: BookingsController;
   const bookingsService = {
     getMyLessons: jest.fn(),
+    getMyTeachingLessons: jest.fn(),
     createBooking: jest.fn(),
   };
 
@@ -31,5 +32,15 @@ describe('BookingsController', () => {
     controller.getMyLessons(user);
 
     expect(bookingsService.getMyLessons).toHaveBeenCalledWith('student-id');
+  });
+
+  it('gets teaching lessons for the current teacher', () => {
+    const user = { userId: 'teacher-user-id', role: UserRole.TEACHER };
+
+    controller.getMyTeachingLessons(user);
+
+    expect(bookingsService.getMyTeachingLessons).toHaveBeenCalledWith(
+      'teacher-user-id',
+    );
   });
 });

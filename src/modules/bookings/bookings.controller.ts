@@ -15,6 +15,12 @@ export class BookingsController {
     return this.bookingsService.getMyLessons(user.userId);
   }
 
+  @Get('teaching')
+  @UseGuards(JwtAuthGuard)
+  getMyTeachingLessons(@CurrentUser() user: JwtPayload) {
+    return this.bookingsService.getMyTeachingLessons(user.userId);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard)
   createBookings(

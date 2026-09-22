@@ -19,6 +19,9 @@ describe('BookingsService', () => {
     },
   };
   const prisma = {
+    teacherProfile: {
+      findUnique: jest.fn(),
+    },
     booking: {
       findMany: jest.fn(),
     },
@@ -57,6 +60,40 @@ describe('BookingsService', () => {
           orderBy: { lessonStartAt: 'asc' },
         }),
       );
+    });
+  });
+
+  describe('getMyTeachingLessons', () => {
+    it('returns confirmed and completed bookings for the teacher', async () => {
+      const bookings = [{ id: 'booking-id' }];
+      prisma.teacherProfile.findUnique.mockResolvedValue({ id: 'teacher-id' });
+      prisma.booking.findMany.mockResolvedValue(bookings);
+
+      await expect(service.getMyTeachingLessons('teacher-user-id')).resolves.toBe(
+        bookings,
+      );
+      expect(prisma.teacherProfile.findUnique).toHaveBeenCalledWith({
+        where: { userId: 'teacher-user-id' },
+        select: { id: true },
+      });
+      expect(prisma.booking.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            teacherId: 'teacher-id',
+            status: { in: ['CONFIRMED', 'COMPLETED'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+    });
+
+    it('rejects when the teacher profile does not exist', async () => {
+      prisma.teacherProfile.findUnique.mockResolvedValue(null);
+
+      await expect(service.getMyTeachingLessons('teacher-user-id')).rejects.toThrow(
+        'Please create a teacher profile first.',
+      );
+      expect(prisma.booking.findMany).not.toHaveBeenCalled();
     });
   });
 

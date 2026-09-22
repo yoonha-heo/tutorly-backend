@@ -46,6 +46,40 @@ export class BookingsService {
     });
   }
 
+  async getMyTeachingLessons(userId: string) {
+    const teacherProfile = await this.prisma.teacherProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    if (!teacherProfile) {
+      throw new BusinessException(
+        'TEACHER_PROFILE_REQUIRED',
+        'Please create a teacher profile first.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    return this.prisma.booking.findMany({
+      where: {
+        teacherId: teacherProfile.id,
+        status: {
+          in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED],
+        },
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            profileImage: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async createBooking(studentId: string, dto: CreateBookingDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
