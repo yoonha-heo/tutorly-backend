@@ -59,7 +59,7 @@ export class ChatsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
-  ) {}
+  ) { }
 
   async sendChat(userId: string, dto: SendChatDto) {
     if (dto.recipientId === userId) {
@@ -117,7 +117,6 @@ export class ChatsService {
     teacherUserId: string;
     bookingId: string;
     lessonStartAt: Date;
-    meetingUrl: string;
   }) {
     const savedMessage = await this.prisma.$transaction(async (tx) => {
       const channel = await this.ensureDirectChannel(
@@ -148,10 +147,7 @@ export class ChatsService {
       savedMessage.channelId,
       savedMessage.senderId,
     );
-    await this.publishNewMessage(savedMessage.channelId, {
-      ...savedMessage,
-      meetingUrl: params.meetingUrl,
-    });
+    await this.publishNewMessage(savedMessage.channelId, savedMessage);
   }
 
   async getChatList(userId: string) {
@@ -267,9 +263,9 @@ export class ChatsService {
 
     const cursorMessage = query.cursor
       ? await this.prisma.message.findUnique({
-          where: { id: query.cursor },
-          select: { id: true, channelId: true, createdAt: true },
-        })
+        where: { id: query.cursor },
+        select: { id: true, channelId: true, createdAt: true },
+      })
       : null;
 
     if (
