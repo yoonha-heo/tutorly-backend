@@ -168,7 +168,14 @@ export class PaymentService {
       include: {
         booking: {
           select: {
+            id: true,
+            studentId: true,
+            lessonStartAt: true,
             lessonEndAt: true,
+            meetingUrl: true,
+            teacher: {
+              select: { userId: true },
+            },
           },
         },
       },
@@ -180,73 +187,100 @@ export class PaymentService {
       );
     }
 
-    if (payment.status === PaymentStatus.PAID) {
+    let booking = payment.booking;
+
+    if (payment.status === PaymentStatus.PAID && booking.meetingUrl) {
       return { received: true };
     }
 
-    const meeting = await this.meetingService.createRoom(
-      payment.booking.lessonEndAt,
-    );
+    if (payment.status !== PaymentStatus.PAID) {
+      const confirmedBooking = await this.prisma.$transaction(async (tx) => {
+        const [lockedPayment] = await tx.$queryRaw<
+          Array<{ id: string; bookingId: string; status: PaymentStatus }>
+        >(Prisma.sql`
+            SELECT id, "bookingId", status FROM "Payment"
+            WHERE "paymentIntentId" = ${paymentIntent.id}
+            FOR UPDATE
+          `);
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const [lockedPayment] = await tx.$queryRaw<
-        Array<{ id: string; bookingId: string; status: PaymentStatus }>
-      >(Prisma.sql`
-          SELECT id, "bookingId", status FROM "Payment"
-          WHERE "paymentIntentId" = ${paymentIntent.id}
-          FOR UPDATE
-        `);
+        if (lockedPayment.status === PaymentStatus.PAID) {
+          return;
+        }
 
-      if (lockedPayment.status === PaymentStatus.PAID) {
-        return;
-      }
+        await tx.$queryRaw(
+          Prisma.sql`SELECT id FROM "Booking" WHERE id = ${lockedPayment.bookingId} FOR UPDATE`,
+        );
 
-      await tx.$queryRaw(
-        Prisma.sql`SELECT id FROM "Booking" WHERE id = ${lockedPayment.bookingId} FOR UPDATE`,
-      );
-
-      await tx.payment.update({
-        where: { id: lockedPayment.id },
-        data: {
-          status: PaymentStatus.PAID,
-          paidAt: new Date(),
-          receiptUrl,
-        },
-      });
-
-      const confirmedBooking = await tx.booking.update({
-        where: { id: lockedPayment.bookingId },
-        data: {
-          status: BookingStatus.CONFIRMED,
-          meetingUrl: meeting.roomUrl,
-        },
-        include: {
-          teacher: {
-            select: { userId: true },
+        await tx.payment.update({
+          where: { id: lockedPayment.id },
+          data: {
+            status: PaymentStatus.PAID,
+            paidAt: new Date(),
+            receiptUrl,
           },
-        },
+        });
+
+        const confirmed = await tx.booking.update({
+          where: { id: lockedPayment.bookingId },
+          data: { status: BookingStatus.CONFIRMED },
+          select: {
+            id: true,
+            studentId: true,
+            lessonStartAt: true,
+            lessonEndAt: true,
+            meetingUrl: true,
+            teacher: {
+              select: { userId: true },
+            },
+          },
+        });
+
+        await tx.webhookEvent.create({
+          data: {
+            eventId: event.id,
+            eventType: event.type,
+            payload: event as unknown as Prisma.InputJsonValue,
+          },
+        });
+
+        return confirmed;
       });
 
-      await tx.webhookEvent.create({
-        data: {
-          eventId: event.id,
-          eventType: event.type,
-          payload: event as unknown as Prisma.InputJsonValue,
-        },
-      });
-
-      return confirmedBooking;
-    });
-
-    if (result) {
-      await this.chatsService.notifyLessonConfirmed({
-        studentId: result.studentId,
-        teacherUserId: result.teacher.userId,
-        bookingId: result.id,
-        lessonStartAt: result.lessonStartAt,
-        meetingUrl: meeting.roomUrl,
-      });
+      if (confirmedBooking) {
+        booking = confirmedBooking;
+        await this.chatsService.notifyLessonConfirmed({
+          studentId: booking.studentId,
+          teacherUserId: booking.teacher.userId,
+          bookingId: booking.id,
+          lessonStartAt: booking.lessonStartAt,
+        });
+      } else {
+        booking = await this.prisma.booking.findUniqueOrThrow({
+          where: { id: payment.bookingId },
+          select: {
+            id: true,
+            studentId: true,
+            lessonStartAt: true,
+            lessonEndAt: true,
+            meetingUrl: true,
+            teacher: {
+              select: { userId: true },
+            },
+          },
+        });
+      }
     }
+
+    if (booking.meetingUrl) {
+      return { received: true };
+    }
+
+    const meeting = await this.meetingService.createRoom(booking.lessonEndAt);
+
+    await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: { meetingUrl: meeting.roomUrl },
+    });
 
     return { received: true };
   }
