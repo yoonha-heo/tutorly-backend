@@ -66,6 +66,10 @@ export class AuthController {
   ) {
     const result = await this.authService.loginWithGoogle(dto);
 
+    if (result.needsRole) {
+      return { needsRole: true };
+    }
+
     setAuthCookies(res, result);
 
     return {

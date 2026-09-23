@@ -46,40 +46,69 @@ export class AuthService {
   async loginWithGoogle(dto: GoogleLoginDto) {
     const googleUser = await this.verifyGoogleIdToken(dto.idToken);
 
-    const user = await this.prisma.user.upsert({
+    const existing = await this.prisma.user.findUnique({
       where: {
         provider_providerId: {
           provider: AuthProvider.GOOGLE,
           providerId: googleUser.providerId,
         },
       },
-      update: {
-        email: googleUser.email,
-        name: googleUser.name,
-        profileImage: googleUser.profileImage,
+      select: { id: true },
+    });
+
+    const profile = {
+      email: googleUser.email,
+      name: googleUser.name,
+      profileImage: googleUser.profileImage,
+    };
+    const teacherProfile = {
+      select: {
+        id: true,
+        status: true,
+        rejectionReason: true,
       },
-      create: {
-        email: googleUser.email,
-        name: googleUser.name,
-        profileImage: googleUser.profileImage,
-        provider: AuthProvider.GOOGLE,
-        providerId: googleUser.providerId,
-        role: dto.role,
-      },
-      include: {
-        teacherProfile: {
-          select: {
-            id: true,
-            status: true,
-            rejectionReason: true,
-          },
+    } as const;
+
+    if (!existing) {
+      if (!dto.role) {
+        return { needsRole: true as const };
+      }
+
+      const created = await this.prisma.user.create({
+        data: {
+          ...profile,
+          provider: AuthProvider.GOOGLE,
+          providerId: googleUser.providerId,
+          role: dto.role,
         },
-      },
+        include: { teacherProfile },
+      });
+      const tokens = await this.issueAuthTokens(created.id, created.role);
+
+      return {
+        needsRole: false as const,
+        ...tokens,
+        user: {
+          id: created.id,
+          email: created.email,
+          name: created.name,
+          profileImage: created.profileImage,
+          role: created.role,
+          teacherProfile: created.teacherProfile,
+        },
+      };
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: existing.id },
+      data: profile,
+      include: { teacherProfile },
     });
 
     const tokens = await this.issueAuthTokens(user.id, user.role);
 
     return {
+      needsRole: false as const,
       ...tokens,
       user: {
         id: user.id,
