@@ -22,7 +22,10 @@ describe('UploadsService', () => {
   describe('uploadFile', () => {
     it('rejects with FILE_REQUIRED when no file is provided', async () => {
       await expect(
-        service.uploadFile(undefined as unknown as Express.Multer.File, 'profiles'),
+        service.uploadFile(
+          undefined as unknown as Express.Multer.File,
+          'profiles',
+        ),
       ).rejects.toMatchObject({ code: 'FILE_REQUIRED' });
     });
   });

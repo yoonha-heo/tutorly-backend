@@ -22,18 +22,18 @@ describe('BookingsController', () => {
     controller = module.get<BookingsController>(BookingsController);
   });
 
-  it('gets lessons for the current user', () => {
+  it('gets lessons for the current user', async () => {
     const user = { userId: 'student-id', role: UserRole.STUDENT };
 
-    controller.getMyLessons(user);
+    await controller.getMyLessons(user);
 
     expect(bookingsService.getMyLessons).toHaveBeenCalledWith('student-id');
   });
 
-  it('gets teaching lessons for the current teacher', () => {
+  it('gets teaching lessons for the current teacher', async () => {
     const user = { userId: 'teacher-user-id', role: UserRole.TEACHER };
 
-    controller.getMyTeachingLessons(user);
+    await controller.getMyTeachingLessons(user);
 
     expect(bookingsService.getMyTeachingLessons).toHaveBeenCalledWith(
       'teacher-user-id',

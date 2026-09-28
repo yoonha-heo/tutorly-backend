@@ -59,7 +59,7 @@ export class ChatsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
-  ) { }
+  ) {}
 
   async sendChat(userId: string, dto: SendChatDto) {
     if (dto.recipientId === userId) {
@@ -263,9 +263,9 @@ export class ChatsService {
 
     const cursorMessage = query.cursor
       ? await this.prisma.message.findUnique({
-        where: { id: query.cursor },
-        select: { id: true, channelId: true, createdAt: true },
-      })
+          where: { id: query.cursor },
+          select: { id: true, channelId: true, createdAt: true },
+        })
       : null;
 
     if (

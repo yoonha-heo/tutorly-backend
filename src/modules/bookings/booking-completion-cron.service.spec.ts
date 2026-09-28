@@ -11,7 +11,7 @@ describe('BookingCompletionCronService', () => {
   };
   const prisma = {
     booking: { findMany: jest.fn() },
-    $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) =>
+    $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
     ),
   };

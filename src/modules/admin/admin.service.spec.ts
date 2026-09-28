@@ -41,9 +41,11 @@ describe('AdminService', () => {
         status: TeacherStatus.APPROVED,
       });
 
-      await expect(service.approveTeacher('teacher-id')).resolves.toMatchObject({
-        status: TeacherStatus.APPROVED,
-      });
+      await expect(service.approveTeacher('teacher-id')).resolves.toMatchObject(
+        {
+          status: TeacherStatus.APPROVED,
+        },
+      );
       expect(prisma.teacherProfile.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'teacher-id' },

@@ -5,14 +5,14 @@ export const REDIS = 'REDIS';
 
 @Global()
 @Module({
-    providers: [
-        {
-            provide: REDIS,
-            useFactory: () => {
-                return new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
-            },
-        },
-    ],
-    exports: [REDIS],
+  providers: [
+    {
+      provide: REDIS,
+      useFactory: () => {
+        return new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+      },
+    },
+  ],
+  exports: [REDIS],
 })
-export class RedisModule { }
+export class RedisModule {}

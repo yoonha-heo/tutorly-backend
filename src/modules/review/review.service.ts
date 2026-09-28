@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { BookingStatus, Prisma } from '@prisma/client';
+import { BookingStatus, Prisma, type Review } from '@prisma/client';
 import { BusinessException } from '@/common/exceptions/business.exception';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -64,7 +64,7 @@ export class ReviewService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly teachersService: TeachersService,
-  ) { }
+  ) {}
 
   async createReview(userId: string, dto: CreateReviewDto) {
     const booking = await this.prisma.booking.findUnique({
@@ -114,7 +114,7 @@ export class ReviewService {
       );
     }
 
-    let review;
+    let review: Review;
     try {
       review = await this.prisma.$transaction(async (tx) => {
         const [teacher] = await tx.$queryRaw<

@@ -18,7 +18,7 @@ import { PaymentService } from './payment.service';
 
 @Controller('payments')
 export class PaymentController {
-  constructor(private readonly paymentService: PaymentService) { }
+  constructor(private readonly paymentService: PaymentService) {}
 
   @Post('intent')
   @UseGuards(JwtAuthGuard)
@@ -37,5 +37,4 @@ export class PaymentController {
   ) {
     return this.paymentService.handleWebhook(req.rawBody, signature);
   }
-
 }

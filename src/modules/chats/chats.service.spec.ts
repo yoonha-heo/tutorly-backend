@@ -19,7 +19,7 @@ describe('ChatsService', () => {
     channelMember: { updateMany: jest.fn(), findMany: jest.fn() },
     channel: { findUnique: jest.fn() },
     message: { findUnique: jest.fn(), findMany: jest.fn() },
-    $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) =>
+    $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
     ),
   };
@@ -91,7 +91,10 @@ describe('ChatsService', () => {
 
     it('rejects with CANNOT_CHAT_WITH_SELF when sending to yourself', async () => {
       await expect(
-        service.sendChat('user-id', { recipientId: 'user-id', content: 'Hello' }),
+        service.sendChat('user-id', {
+          recipientId: 'user-id',
+          content: 'Hello',
+        }),
       ).rejects.toMatchObject({ code: 'CANNOT_CHAT_WITH_SELF' });
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
     });
@@ -123,7 +126,10 @@ describe('ChatsService', () => {
           where: { channelId: 'channel-id', userId: 'user-id' },
         }),
       );
-      expect(pipeline.hdel).toHaveBeenCalledWith('unread:user-id', 'channel-id');
+      expect(pipeline.hdel).toHaveBeenCalledWith(
+        'unread:user-id',
+        'channel-id',
+      );
       expect(pipeline.decrby).toHaveBeenCalledWith('unread:user-id:total', 2);
     });
 
@@ -172,7 +178,9 @@ describe('ChatsService', () => {
       });
 
       await expect(
-        service.getMessageList('user-id', 'channel-id', { cursor: 'cursor-id' }),
+        service.getMessageList('user-id', 'channel-id', {
+          cursor: 'cursor-id',
+        }),
       ).rejects.toMatchObject({ code: 'INVALID_CURSOR' });
       expect(prisma.message.findMany).not.toHaveBeenCalled();
     });

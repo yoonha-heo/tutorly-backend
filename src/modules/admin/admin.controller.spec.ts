@@ -22,30 +22,30 @@ describe('AdminController', () => {
     controller = module.get<AdminController>(AdminController);
   });
 
-  it('lists teacher profiles', () => {
+  it('lists teacher profiles', async () => {
     const query = { status: undefined, page: 1, limit: 20 };
 
-    controller.listTeacherProfiles(query);
+    await controller.listTeacherProfiles(query);
 
     expect(adminService.listTeacherProfiles).toHaveBeenCalledWith(query);
   });
 
-  it('gets a teacher profile', () => {
-    controller.getTeacherProfile('teacher-id');
+  it('gets a teacher profile', async () => {
+    await controller.getTeacherProfile('teacher-id');
 
     expect(adminService.getTeacherProfile).toHaveBeenCalledWith('teacher-id');
   });
 
-  it('approves a teacher profile', () => {
-    controller.approveTeacher('teacher-id');
+  it('approves a teacher profile', async () => {
+    await controller.approveTeacher('teacher-id');
 
     expect(adminService.approveTeacher).toHaveBeenCalledWith('teacher-id');
   });
 
-  it('rejects a teacher profile with a reason', () => {
+  it('rejects a teacher profile with a reason', async () => {
     const dto = { rejectionReason: 'Incomplete bio.' };
 
-    controller.rejectTeacher('teacher-id', dto);
+    await controller.rejectTeacher('teacher-id', dto);
 
     expect(adminService.rejectTeacher).toHaveBeenCalledWith('teacher-id', dto);
   });

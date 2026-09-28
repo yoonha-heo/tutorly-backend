@@ -11,7 +11,7 @@ describe('BookingExpirationCronService', () => {
   };
   const prisma = {
     booking: { findMany: jest.fn() },
-    $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) =>
+    $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
     ),
   };
@@ -41,7 +41,7 @@ describe('BookingExpirationCronService', () => {
           where: expect.objectContaining({
             id: { in: ['booking-id'] },
             status: BookingStatus.PENDING_PAYMENT,
-          }),
+          }) as object,
           data: { status: BookingStatus.EXPIRED },
         }),
       );
@@ -49,7 +49,7 @@ describe('BookingExpirationCronService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             bookingId: { in: ['booking-id'] },
-          }),
+          }) as object,
         }),
       );
     });

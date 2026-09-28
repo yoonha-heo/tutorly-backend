@@ -83,7 +83,9 @@ describe('AuthService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'user-id' },
-          data: expect.objectContaining({ email: 'ada@example.com' }),
+          data: expect.objectContaining({
+            email: 'ada@example.com',
+          }) as object,
         }),
       );
       expect(redis.set).toHaveBeenCalledWith(
@@ -105,7 +107,9 @@ describe('AuthService', () => {
     });
 
     it('rejects with INVALID_GOOGLE_TOKEN when Google token verification fails', async () => {
-      googleClient().verifyIdToken.mockRejectedValue(new Error('invalid token'));
+      googleClient().verifyIdToken.mockRejectedValue(
+        new Error('invalid token'),
+      );
 
       await expect(
         service.loginWithGoogle({ idToken: 'bad-token' }),

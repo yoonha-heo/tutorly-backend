@@ -18,7 +18,7 @@ describe('TeachersService', () => {
     teacherSpecialty: { deleteMany: jest.fn(), createMany: jest.fn() },
   };
   const prisma = {
-    $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) =>
+    $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
     ),
   };
@@ -69,7 +69,7 @@ describe('TeachersService', () => {
             userId: 'user-id',
             status: TeacherStatus.PENDING,
             hourlyRate: 40,
-          }),
+          }) as object,
         }),
       );
       expect(tx.teacherLanguage.createMany).toHaveBeenCalledWith({
@@ -108,7 +108,10 @@ describe('TeachersService', () => {
       tx.teacherProfile.findUnique.mockResolvedValue({
         id: 'teacher-id',
         status: TeacherStatus.APPROVED,
-        teacherLanguages: [{ languageId: 'old-lang' }, { languageId: 'lang-id' }],
+        teacherLanguages: [
+          { languageId: 'old-lang' },
+          { languageId: 'lang-id' },
+        ],
         teacherSpecialties: [{ specialtyId: 'specialty-id' }],
       });
       tx.language.findMany.mockResolvedValue([{ id: 'lang-id', name: 'en' }]);
@@ -146,7 +149,9 @@ describe('TeachersService', () => {
 
       expect(tx.teacherProfile.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: TeacherStatus.PENDING }),
+          data: expect.objectContaining({
+            status: TeacherStatus.PENDING,
+          }) as object,
         }),
       );
     });

@@ -23,11 +23,11 @@ describe('ReviewController', () => {
     controller = module.get<ReviewController>(ReviewController);
   });
 
-  it('gets reviews written by the current student', () => {
+  it('gets reviews written by the current student', async () => {
     const user = { userId: 'student-id', role: UserRole.STUDENT };
     const query = { page: 1, limit: 20 };
 
-    controller.getMyReviews(user, query);
+    await controller.getMyReviews(user, query);
 
     expect(reviewService.getMyReviews).toHaveBeenCalledWith(
       'student-id',
@@ -35,11 +35,11 @@ describe('ReviewController', () => {
     );
   });
 
-  it('gets received reviews for the current teacher', () => {
+  it('gets received reviews for the current teacher', async () => {
     const user = { userId: 'teacher-user-id', role: UserRole.TEACHER };
     const query = { page: 1, limit: 20 };
 
-    controller.getMyTeachingReviews(user, query);
+    await controller.getMyTeachingReviews(user, query);
 
     expect(reviewService.getMyTeachingReviews).toHaveBeenCalledWith(
       'teacher-user-id',
@@ -47,15 +47,12 @@ describe('ReviewController', () => {
     );
   });
 
-  it('creates a review for the current user', () => {
+  it('creates a review for the current user', async () => {
     const user = { userId: 'student-id', role: UserRole.STUDENT };
     const dto = { bookingId: 'booking-id', rating: 5 };
 
-    controller.createReview(user, dto);
+    await controller.createReview(user, dto);
 
-    expect(reviewService.createReview).toHaveBeenCalledWith(
-      'student-id',
-      dto,
-    );
+    expect(reviewService.createReview).toHaveBeenCalledWith('student-id', dto);
   });
 });

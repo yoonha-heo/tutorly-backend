@@ -15,7 +15,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentService: PaymentService,
-  ) { }
+  ) {}
 
   async getMyLessons(userId: string) {
     return this.prisma.booking.findMany({
@@ -248,7 +248,10 @@ export class BookingsService {
         );
       if (
         (
-          [BookingStatus.CANCELLED, BookingStatus.REFUND_PROCESSING] as BookingStatus[]
+          [
+            BookingStatus.CANCELLED,
+            BookingStatus.REFUND_PROCESSING,
+          ] as BookingStatus[]
         ).includes(locked.status)
       ) {
         throw new BusinessException(
@@ -332,7 +335,6 @@ export class BookingsService {
       return { success: true };
     });
   }
-
 
   private isActiveBookingConflictError(error: unknown): boolean {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {

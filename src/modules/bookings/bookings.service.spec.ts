@@ -1,7 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '@/database/prisma/prisma.service';
-import { BookingStatus, LessonType, PaymentStatus, Prisma } from '@prisma/client';
+import {
+  BookingStatus,
+  LessonType,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import { PaymentService } from '@/modules/payment/payment.service';
 
 describe('BookingsService', () => {
@@ -35,7 +40,7 @@ describe('BookingsService', () => {
     payment: {
       findUnique: jest.fn(),
     },
-    $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) =>
+    $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) =>
       callback(tx),
     ),
   };
@@ -79,9 +84,9 @@ describe('BookingsService', () => {
       prisma.teacherProfile.findUnique.mockResolvedValue({ id: 'teacher-id' });
       prisma.booking.findMany.mockResolvedValue(bookings);
 
-      await expect(service.getMyTeachingLessons('teacher-user-id')).resolves.toBe(
-        bookings,
-      );
+      await expect(
+        service.getMyTeachingLessons('teacher-user-id'),
+      ).resolves.toBe(bookings);
       expect(prisma.teacherProfile.findUnique).toHaveBeenCalledWith({
         where: { userId: 'teacher-user-id' },
         select: { id: true },
@@ -100,9 +105,9 @@ describe('BookingsService', () => {
     it('rejects when the teacher profile does not exist', async () => {
       prisma.teacherProfile.findUnique.mockResolvedValue(null);
 
-      await expect(service.getMyTeachingLessons('teacher-user-id')).rejects.toThrow(
-        'Please create a teacher profile first.',
-      );
+      await expect(
+        service.getMyTeachingLessons('teacher-user-id'),
+      ).rejects.toThrow('Please create a teacher profile first.');
       expect(prisma.booking.findMany).not.toHaveBeenCalled();
     });
   });
@@ -130,7 +135,7 @@ describe('BookingsService', () => {
 
       expect(tx.booking.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ price: 40 }),
+          data: expect.objectContaining({ price: 40 }) as object,
         }),
       );
     });
@@ -151,7 +156,9 @@ describe('BookingsService', () => {
           availabilityId: 'availability-id',
           lessonType: LessonType.STANDARD,
         }),
-      ).rejects.toThrow("This teacher hasn't set a price yet. Please try another teacher.");
+      ).rejects.toThrow(
+        "This teacher hasn't set a price yet. Please try another teacher.",
+      );
       expect(tx.booking.create).not.toHaveBeenCalled();
     });
 

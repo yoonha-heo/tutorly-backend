@@ -39,7 +39,7 @@ describe('AvailabilityCronService', () => {
               teacherId: 'teacher-id',
               isOpen: true,
             }),
-          ]),
+          ]) as object[],
         }),
       );
     });

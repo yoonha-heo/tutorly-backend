@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AuthService } from './auth.service';
@@ -50,9 +58,29 @@ function clearAuthCookies(res: Response) {
   });
 }
 
-function readCookie(req: Request, name: string) {
-  const value = req.cookies?.[name];
+function readCookie(req: Request, name: string): string | undefined {
+  return readStringProperty(cookieJar(req), name);
+}
+
+function cookieJar(req: Request): unknown {
+  if (!('cookies' in req)) {
+    return undefined;
+  }
+
+  return req.cookies;
+}
+
+function readStringProperty(source: unknown, name: string): string | undefined {
+  if (!isRecord(source) || !(name in source)) {
+    return undefined;
+  }
+
+  const value = source[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 @Controller('auth')
@@ -101,10 +129,7 @@ export class AuthController {
   }
 
   @Post('logout')
-  async logout(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     await this.authService.logout(
       readCookie(req, 'accessToken'),
       readCookie(req, 'refreshToken'),

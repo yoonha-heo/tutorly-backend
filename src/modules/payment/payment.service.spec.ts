@@ -10,6 +10,9 @@ import { PaymentService } from './payment.service';
 
 describe('PaymentService', () => {
   let service: PaymentService;
+  let createPaymentIntent: jest.SpiedFunction<
+    Stripe['paymentIntents']['create']
+  >;
   const tx = {
     $queryRaw: jest.fn(),
     payment: {
@@ -64,11 +67,13 @@ describe('PaymentService', () => {
     }).compile();
 
     service = module.get(PaymentService);
-    jest.spyOn(service.stripe.paymentIntents, 'create').mockResolvedValue({
-      id: 'pi_test',
-      client_secret: 'cs_test',
-      amount: 4000,
-    } as Stripe.Response<Stripe.PaymentIntent>);
+    createPaymentIntent = jest
+      .spyOn(service.stripe.paymentIntents, 'create')
+      .mockResolvedValue({
+        id: 'pi_test',
+        client_secret: 'cs_test',
+        amount: 4000,
+      } as Stripe.Response<Stripe.PaymentIntent>);
   });
 
   function payableBooking() {
@@ -99,7 +104,7 @@ describe('PaymentService', () => {
         paymentIntentId: 'pi_test',
       });
 
-      expect(service.stripe.paymentIntents.create).toHaveBeenCalledWith(
+      expect(createPaymentIntent).toHaveBeenCalledWith(
         expect.objectContaining({
           amount: 4000,
           currency: 'usd',
@@ -110,7 +115,9 @@ describe('PaymentService', () => {
       expect(tx.payment.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { bookingId: 'booking-id' },
-          create: expect.objectContaining({ status: PaymentStatus.READY }),
+          create: expect.objectContaining({
+            status: PaymentStatus.READY,
+          }) as object,
         }),
       );
     });
@@ -121,7 +128,7 @@ describe('PaymentService', () => {
       await expect(
         service.createPaymentIntent('other-user', 'booking-id'),
       ).rejects.toMatchObject({ code: 'BOOKING_ACCESS_DENIED' });
-      expect(service.stripe.paymentIntents.create).not.toHaveBeenCalled();
+      expect(createPaymentIntent).not.toHaveBeenCalled();
     });
 
     it('rejects with BOOKING_NOT_PAYABLE when the booking is not awaiting payment', async () => {
@@ -133,7 +140,7 @@ describe('PaymentService', () => {
       await expect(
         service.createPaymentIntent('student-id', 'booking-id'),
       ).rejects.toMatchObject({ code: 'BOOKING_NOT_PAYABLE' });
-      expect(service.stripe.paymentIntents.create).not.toHaveBeenCalled();
+      expect(createPaymentIntent).not.toHaveBeenCalled();
     });
 
     it('returns the existing client secret without calling Stripe again when it is already READY', async () => {
@@ -152,7 +159,7 @@ describe('PaymentService', () => {
         clientSecret: 'cs_existing',
         paymentIntentId: 'pi_existing',
       });
-      expect(service.stripe.paymentIntents.create).not.toHaveBeenCalled();
+      expect(createPaymentIntent).not.toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
@@ -219,7 +226,7 @@ describe('PaymentService', () => {
           data: expect.objectContaining({
             status: PaymentStatus.PAID,
             receiptUrl: 'https://pay.stripe.com/receipt',
-          }),
+          }) as object,
         }),
       );
       expect(tx.booking.update).toHaveBeenCalledWith(
@@ -296,7 +303,7 @@ describe('PaymentService', () => {
           data: expect.objectContaining({
             eventId: 'evt_canceled',
             eventType: 'payment_intent.canceled',
-          }),
+          }) as object,
         }),
       );
       expect(prisma.payment.findUnique).not.toHaveBeenCalled();

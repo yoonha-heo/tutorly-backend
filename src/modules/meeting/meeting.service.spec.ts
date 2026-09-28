@@ -28,10 +28,11 @@ describe('MeetingService', () => {
       const lessonEndAt = new Date('2026-09-26T01:50:00.000Z');
       fetchMock.mockResolvedValue({
         ok: true,
-        json: async () => ({
-          meetingId: 'meeting-id',
-          roomUrl: 'https://whereby.test/room',
-        }),
+        json: () =>
+          Promise.resolve({
+            meetingId: 'meeting-id',
+            roomUrl: 'https://whereby.test/room',
+          }),
       });
 
       await expect(service.createRoom(lessonEndAt)).resolves.toEqual({

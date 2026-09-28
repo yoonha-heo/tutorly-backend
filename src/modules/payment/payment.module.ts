@@ -9,6 +9,6 @@ import { ChatsModule } from '@/modules/chats/chats.module';
   imports: [PrismaModule, MeetingModule, ChatsModule],
   controllers: [PaymentController],
   providers: [PaymentService],
-  exports: [PaymentService]
+  exports: [PaymentService],
 })
-export class PaymentModule { }
+export class PaymentModule {}

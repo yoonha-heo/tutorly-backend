@@ -38,4 +38,4 @@ import { ChatsModule } from './modules/chats/chats.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

@@ -151,7 +151,7 @@ export class PaymentService {
       return { received: true };
     }
 
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const paymentIntent = event.data.object;
 
     let receiptUrl: string | null = null;
     const latestCharge = paymentIntent.latest_charge;
