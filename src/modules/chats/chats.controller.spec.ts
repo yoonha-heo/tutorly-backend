@@ -23,10 +23,6 @@ describe('ChatsController', () => {
     controller = module.get<ChatsController>(ChatsController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   it('sends a chat for the current user', () => {
     const user = { userId: 'user-id', role: UserRole.STUDENT };
     const dto = { recipientId: 'teacher-id', content: 'Hello' };

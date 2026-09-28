@@ -23,10 +23,6 @@ describe('ReviewController', () => {
     controller = module.get<ReviewController>(ReviewController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   it('gets reviews written by the current student', () => {
     const user = { userId: 'student-id', role: UserRole.STUDENT };
     const query = { page: 1, limit: 20 };

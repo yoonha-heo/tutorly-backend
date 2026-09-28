@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { TeachersService } from '@/modules/teachers/teachers.service';
 import { ReviewService } from './review.service';
@@ -16,7 +17,19 @@ describe('ReviewService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    booking: {
+      findUnique: jest.fn(),
+    },
     $transaction: jest.fn(),
+  };
+  const teachersService = {
+    bustTeacherSearchCache: jest.fn(),
+  };
+  const tx = {
+    $queryRaw: jest.fn(),
+    review: { create: jest.fn() },
+    teacherProfile: { update: jest.fn() },
+    user: { update: jest.fn() },
   };
 
   beforeEach(async () => {
@@ -26,15 +39,11 @@ describe('ReviewService', () => {
       providers: [
         ReviewService,
         { provide: PrismaService, useValue: prisma },
-        { provide: TeachersService, useValue: { bustTeacherSearchCache: jest.fn() } },
+        { provide: TeachersService, useValue: teachersService },
       ],
     }).compile();
 
     service = module.get<ReviewService>(ReviewService);
-  });
-
-  it('should be defined', () => {
-    expect(service).toBeDefined();
   });
 
   describe('getTeacherReviews', () => {
@@ -58,7 +67,7 @@ describe('ReviewService', () => {
         },
       ];
       prisma.review.findMany.mockResolvedValue(items);
-      prisma.teacherProfile.findUnique.mockResolvedValue({ reviewCount: 21 });
+      prisma.teacherProfile.findUnique.mockResolvedValue({ reviewCount: 41 });
 
       await expect(
         service.getTeacherReviews('teacher-id', { page: 2, limit: 20 }),
@@ -66,7 +75,7 @@ describe('ReviewService', () => {
         items,
         page: 2,
         limit: 20,
-        totalCount: 21,
+        totalCount: 41,
         hasNextPage: true,
         nextPage: 3,
       });
@@ -196,6 +205,96 @@ describe('ReviewService', () => {
       });
       expect(prisma.review.count).not.toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createReview', () => {
+    const endedAt = new Date(Date.now() - 60 * 60 * 1000);
+
+    function completedBooking() {
+      return {
+        id: 'booking-id',
+        studentId: 'student-id',
+        teacherId: 'teacher-id',
+        status: BookingStatus.COMPLETED,
+        lessonEndAt: endedAt,
+        review: null,
+      };
+    }
+
+    it('updates the teacher rating and review count and clears the search cache when a review is left on a finished lesson', async () => {
+      prisma.booking.findUnique.mockResolvedValue(completedBooking());
+      prisma.$transaction.mockImplementation(
+        (callback: (transaction: typeof tx) => unknown) => callback(tx),
+      );
+      tx.$queryRaw.mockResolvedValue([{ averageRating: 4, reviewCount: 2 }]);
+      tx.review.create.mockResolvedValue({ id: 'review-id', rating: 5 });
+
+      await expect(
+        service.createReview('student-id', {
+          bookingId: 'booking-id',
+          rating: 5,
+          comment: 'Clear explanations',
+        }),
+      ).resolves.toEqual({ id: 'review-id', rating: 5 });
+
+      expect(tx.teacherProfile.update).toHaveBeenCalledWith({
+        where: { id: 'teacher-id' },
+        data: { averageRating: 13 / 3, reviewCount: 3 },
+      });
+      expect(tx.user.update).toHaveBeenCalledWith({
+        where: { id: 'student-id' },
+        data: { reviewCount: { increment: 1 } },
+      });
+      expect(teachersService.bustTeacherSearchCache).toHaveBeenCalled();
+    });
+
+    it('rejects with REVIEW_ACCESS_DENIED when the student is not the booking owner', async () => {
+      prisma.booking.findUnique.mockResolvedValue(completedBooking());
+
+      await expect(
+        service.createReview('other-user', {
+          bookingId: 'booking-id',
+          rating: 5,
+          comment: 'Clear explanations',
+        }),
+      ).rejects.toMatchObject({ code: 'REVIEW_ACCESS_DENIED' });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects with REVIEW_NOT_ALLOWED before the lesson has ended', async () => {
+      prisma.booking.findUnique.mockResolvedValue({
+        ...completedBooking(),
+        status: BookingStatus.CONFIRMED,
+      });
+
+      await expect(
+        service.createReview('student-id', {
+          bookingId: 'booking-id',
+          rating: 5,
+          comment: 'Clear explanations',
+        }),
+      ).rejects.toMatchObject({ code: 'REVIEW_NOT_ALLOWED' });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects with REVIEW_ALREADY_EXISTS when the same lesson review is submitted concurrently', async () => {
+      prisma.booking.findUnique.mockResolvedValue(completedBooking());
+      prisma.$transaction.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '6.19.3',
+        }),
+      );
+
+      await expect(
+        service.createReview('student-id', {
+          bookingId: 'booking-id',
+          rating: 5,
+          comment: 'Clear explanations',
+        }),
+      ).rejects.toMatchObject({ code: 'REVIEW_ALREADY_EXISTS' });
+      expect(teachersService.bustTeacherSearchCache).not.toHaveBeenCalled();
     });
   });
 });

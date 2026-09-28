@@ -22,10 +22,6 @@ describe('BookingsController', () => {
     controller = module.get<BookingsController>(BookingsController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   it('gets lessons for the current user', () => {
     const user = { userId: 'student-id', role: UserRole.STUDENT };
 

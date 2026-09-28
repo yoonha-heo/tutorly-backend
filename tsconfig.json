@@ -18,6 +18,7 @@
       "@/*": ["src/*"]
     },
     "incremental": true,
+    "types": ["node", "jest", "multer"],
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,

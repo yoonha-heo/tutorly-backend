@@ -22,10 +22,6 @@ describe('AdminController', () => {
     controller = module.get<AdminController>(AdminController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
   it('lists teacher profiles', () => {
     const query = { status: undefined, page: 1, limit: 20 };
 
