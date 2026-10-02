@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.github
+.cursor
+.env
+.env.*
+credentials
+coverage
+test
+*.md
