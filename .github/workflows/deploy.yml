@@ -53,7 +53,7 @@ jobs:
           region: ${{ env.REGION }}
           project_id: ${{ env.PROJECT_ID }}
           image: ${{ steps.image.outputs.image }}
-          flags: --allow-unauthenticated --memory=1Gi
+          flags: --allow-unauthenticated --memory=1Gi --add-cloudsql-instances=tutorly-499105:asia-northeast3:tutorly-db
           env_vars: |-
             NODE_ENV=production
             DATABASE_URL=${{ secrets.DATABASE_URL }}
