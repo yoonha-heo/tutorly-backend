@@ -17,13 +17,15 @@ import type { JwtPayload } from './types/jwt-payload.type';
 const ACCESS_TOKEN_MAX_AGE_MS = 1000 * 60 * 15;
 const REFRESH_TOKEN_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
-function authCookieOptions(maxAge: number) {
+function authCookieOptions(maxAge?: number) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    secure: isProduction,
+    sameSite: isProduction ? ('none' as const) : ('lax' as const),
     path: '/',
-    maxAge,
+    ...(maxAge === undefined ? {} : { maxAge }),
   };
 }
 
@@ -44,18 +46,9 @@ function setAuthCookies(
 }
 
 function clearAuthCookies(res: Response) {
-  res.clearCookie('accessToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-  });
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-  });
+  const options = authCookieOptions();
+  res.clearCookie('accessToken', options);
+  res.clearCookie('refreshToken', options);
 }
 
 function readCookie(req: Request, name: string): string | undefined {
