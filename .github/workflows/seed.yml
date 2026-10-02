@@ -1,0 +1,57 @@
+name: Seed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    name: Seed Cloud SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Connect to Cloud SQL
+        run: |
+          curl -fsSL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mkdir -p /cloudsql
+          sudo chmod 777 /cloudsql
+          ./cloud-sql-proxy --unix-socket /cloudsql tutorly-499105:asia-northeast3:tutorly-db &
+          for _ in $(seq 1 30); do
+            if [ -S /cloudsql/tutorly-499105:asia-northeast3:tutorly-db/.s.PGSQL.5432 ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Cloud SQL proxy did not become ready." >&2
+          exit 1
+
+      - name: Generate Prisma client
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma generate
+
+      - name: Run seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma db seed
