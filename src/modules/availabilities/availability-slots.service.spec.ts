@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '@/database/prisma/prisma.service';
-import { AvailabilityCronService } from './availability-cron.service';
+import { AvailabilitySlotsService } from './availability-slots.service';
 
-describe('AvailabilityCronService', () => {
-  let service: AvailabilityCronService;
+describe('AvailabilitySlotsService', () => {
+  let service: AvailabilitySlotsService;
   const prisma = {
     teacherProfile: { findMany: jest.fn() },
     availability: { createMany: jest.fn() },
@@ -14,12 +14,12 @@ describe('AvailabilityCronService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AvailabilityCronService,
+        AvailabilitySlotsService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
 
-    service = module.get(AvailabilityCronService);
+    service = module.get(AvailabilitySlotsService);
   });
 
   describe('generateDailyAvailabilitySlots', () => {

@@ -9,16 +9,15 @@ import { AdminModule } from './modules/admin/admin.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { AvailabilitiesModule } from './modules/availabilities/availabilities.module';
-import { ScheduleModule } from '@nestjs/schedule';
 import { PaymentModule } from './modules/payment/payment.module';
 import { MeetingModule } from './modules/meeting/meeting.module';
 import { ReviewModule } from './modules/review/review.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { ChatsModule } from './modules/chats/chats.module';
+import { JobsModule } from './modules/jobs/jobs.module';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -34,6 +33,7 @@ import { ChatsModule } from './modules/chats/chats.module';
     ReviewModule,
     RedisModule,
     ChatsModule,
+    JobsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

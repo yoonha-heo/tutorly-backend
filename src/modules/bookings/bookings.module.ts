@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
-import { BookingExpirationCronService } from './booking-expiration-cron.service';
-import { BookingCompletionCronService } from './booking-completion-cron.service';
+import { BookingExpirationService } from './booking-expiration.service';
+import { BookingCompletionService } from './booking-completion.service';
 import { PaymentModule } from '@/modules/payment/payment.module';
 import { TeachersModule } from '@/modules/teachers/teachers.module';
 
@@ -11,8 +11,9 @@ import { TeachersModule } from '@/modules/teachers/teachers.module';
   controllers: [BookingsController],
   providers: [
     BookingsService,
-    BookingExpirationCronService,
-    BookingCompletionCronService,
+    BookingExpirationService,
+    BookingCompletionService,
   ],
+  exports: [BookingExpirationService, BookingCompletionService],
 })
 export class BookingsModule {}

@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { TeachersService } from '@/modules/teachers/teachers.service';
-import { BookingCompletionCronService } from './booking-completion-cron.service';
+import { BookingCompletionService } from './booking-completion.service';
 
-describe('BookingCompletionCronService', () => {
-  let service: BookingCompletionCronService;
+describe('BookingCompletionService', () => {
+  let service: BookingCompletionService;
   const tx = {
     $queryRaw: jest.fn(),
     availabilityBlock: { deleteMany: jest.fn() },
@@ -24,13 +24,13 @@ describe('BookingCompletionCronService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        BookingCompletionCronService,
+        BookingCompletionService,
         { provide: PrismaService, useValue: prisma },
         { provide: TeachersService, useValue: teachersService },
       ],
     }).compile();
 
-    service = module.get(BookingCompletionCronService);
+    service = module.get(BookingCompletionService);
   });
 
   describe('completeConfirmedBookings', () => {

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { fromZonedTime } from 'date-fns-tz';
 
 import {
@@ -11,47 +10,41 @@ import {
 import { PrismaService } from '@/database/prisma/prisma.service';
 
 @Injectable()
-export class AvailabilityCronService {
-  private readonly logger = new Logger(AvailabilityCronService.name);
+export class AvailabilitySlotsService {
+  private readonly logger = new Logger(AvailabilitySlotsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
-  @Cron('0 1 * * *')
-  async generateDailyAvailabilitySlots() {
-    try {
-      const teachers = await this.prisma.teacherProfile.findMany({
-        select: {
-          id: true,
-          timezone: true,
-        },
-      });
+  async generateDailyAvailabilitySlots(): Promise<{ inserted: number }> {
+    const teachers = await this.prisma.teacherProfile.findMany({
+      select: {
+        id: true,
+        timezone: true,
+      },
+    });
 
-      const targetDates = this.getTargetDates();
+    const targetDates = this.getTargetDates();
 
-      const slots = teachers.flatMap((teacher) =>
-        targetDates.flatMap((date) =>
-          this.generateSlotsForTeacher(teacher.id, teacher.timezone, date),
-        ),
-      );
+    const slots = teachers.flatMap((teacher) =>
+      targetDates.flatMap((date) =>
+        this.generateSlotsForTeacher(teacher.id, teacher.timezone, date),
+      ),
+    );
 
-      if (slots.length === 0) {
-        return;
-      }
-
-      const result = await this.prisma.availability.createMany({
-        data: slots,
-        skipDuplicates: true,
-      });
-
-      this.logger.log(
-        `Requested ${slots.length} slots, inserted ${result.count} slots.`,
-      );
-    } catch (error) {
-      this.logger.error(
-        'Failed to generate daily availability slots',
-        error instanceof Error ? error.stack : undefined,
-      );
+    if (slots.length === 0) {
+      return { inserted: 0 };
     }
+
+    const result = await this.prisma.availability.createMany({
+      data: slots,
+      skipDuplicates: true,
+    });
+
+    this.logger.log(
+      `Requested ${slots.length} slots, inserted ${result.count} slots.`,
+    );
+
+    return { inserted: result.count };
   }
 
   private getTargetDates(): Date[] {

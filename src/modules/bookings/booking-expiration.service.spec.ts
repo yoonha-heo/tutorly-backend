@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingStatus } from '@prisma/client';
 import { PrismaService } from '@/database/prisma/prisma.service';
-import { BookingExpirationCronService } from './booking-expiration-cron.service';
+import { BookingExpirationService } from './booking-expiration.service';
 
-describe('BookingExpirationCronService', () => {
-  let service: BookingExpirationCronService;
+describe('BookingExpirationService', () => {
+  let service: BookingExpirationService;
   const tx = {
     booking: { updateMany: jest.fn() },
     availabilityBlock: { deleteMany: jest.fn() },
@@ -21,12 +21,12 @@ describe('BookingExpirationCronService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        BookingExpirationCronService,
+        BookingExpirationService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
 
-    service = module.get(BookingExpirationCronService);
+    service = module.get(BookingExpirationService);
   });
 
   describe('expirePendingBookings', () => {
@@ -71,10 +71,10 @@ describe('BookingExpirationCronService', () => {
       expect(tx.availabilityBlock.deleteMany).not.toHaveBeenCalled();
     });
 
-    it('does not throw when a database error occurs', async () => {
+    it('rejects when a database error occurs so the scheduler can retry', async () => {
       prisma.booking.findMany.mockRejectedValue(new Error('db down'));
 
-      await expect(service.expirePendingBookings()).resolves.toBeUndefined();
+      await expect(service.expirePendingBookings()).rejects.toThrow('db down');
     });
   });
 });
