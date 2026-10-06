@@ -129,7 +129,7 @@ export class ChatsService {
       const data: Prisma.MessageUncheckedCreateInput = {
         channelId: channel.id,
         senderId: null,
-        content: `🎉 Lesson confirmed!\n- Date & Time: ${params.lessonStartAt.toLocaleString('en-US')}`,
+        content: `🎉 Lesson confirmed!\n${params.lessonStartAt.toISOString()}`,
         type: MessageType.SYSTEM,
       };
 
@@ -167,7 +167,7 @@ export class ChatsService {
       const data: Prisma.MessageUncheckedCreateInput = {
         channelId: channel.id,
         senderId: null,
-        content: `Lesson cancelled.\n- Date & Time: ${params.lessonStartAt.toLocaleString('en-US')}`,
+        content: `Lesson cancelled.\n${params.lessonStartAt.toISOString()}`,
         type: MessageType.SYSTEM,
       };
 
