@@ -7,6 +7,7 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { ChatsService } from '@/modules/chats/chats.service';
 import { PaymentService } from '@/modules/payment/payment.service';
 
 describe('BookingsService', () => {
@@ -35,6 +36,7 @@ describe('BookingsService', () => {
     },
     booking: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
     payment: {
@@ -48,6 +50,9 @@ describe('BookingsService', () => {
     paymentIntents: { cancel: jest.fn() },
     refunds: { create: jest.fn() },
   };
+  const chatsService = {
+    notifyLessonCancelled: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -57,6 +62,7 @@ describe('BookingsService', () => {
         BookingsService,
         { provide: PrismaService, useValue: prisma },
         { provide: PaymentService, useValue: { stripe } },
+        { provide: ChatsService, useValue: chatsService },
       ],
     }).compile();
 
@@ -228,6 +234,12 @@ describe('BookingsService', () => {
       prisma.payment.findUnique.mockResolvedValue({
         paymentIntentId: 'pi_test',
       });
+      prisma.booking.findUnique.mockResolvedValue({
+        id: 'booking-id',
+        studentId: 'student-id',
+        lessonStartAt: futureStart,
+        teacher: { userId: 'teacher-user-id' },
+      });
 
       await expect(
         service.cancelBooking('booking-id', 'student-id'),
@@ -247,6 +259,12 @@ describe('BookingsService', () => {
       });
       expect(tx.availabilityBlock.deleteMany).toHaveBeenCalledWith({
         where: { bookingId: 'booking-id' },
+      });
+      expect(chatsService.notifyLessonCancelled).toHaveBeenCalledWith({
+        studentId: 'student-id',
+        teacherUserId: 'teacher-user-id',
+        bookingId: 'booking-id',
+        lessonStartAt: futureStart,
       });
     });
 

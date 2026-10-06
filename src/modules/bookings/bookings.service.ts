@@ -8,6 +8,7 @@ import {
   PAYMENT_EXPIRES_IN_MINUTES,
   SLOT_INTERVAL_MINUTES,
 } from '@/common/constants/booking.constants';
+import { ChatsService } from '@/modules/chats/chats.service';
 import { PaymentService } from '@/modules/payment/payment.service';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentService: PaymentService,
+    private readonly chatsService: ChatsService,
   ) {}
 
   async getMyLessons(userId: string) {
@@ -315,7 +317,7 @@ export class BookingsService {
     }
 
     // [3단계] 최종 마감 (Booking, Payment, Timeslot 한 번에 업데이트)
-    return await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
         data: { status: BookingStatus.CANCELLED },
@@ -331,9 +333,28 @@ export class BookingsService {
       await tx.availabilityBlock.deleteMany({
         where: { bookingId },
       });
-
-      return { success: true };
     });
+
+    const cancelled = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        studentId: true,
+        lessonStartAt: true,
+        teacher: { select: { userId: true } },
+      },
+    });
+
+    if (cancelled) {
+      await this.chatsService.notifyLessonCancelled({
+        studentId: cancelled.studentId,
+        teacherUserId: cancelled.teacher.userId,
+        bookingId: cancelled.id,
+        lessonStartAt: cancelled.lessonStartAt,
+      });
+    }
+
+    return { success: true };
   }
 
   private isActiveBookingConflictError(error: unknown): boolean {

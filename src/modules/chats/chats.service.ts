@@ -150,6 +150,44 @@ export class ChatsService {
     await this.publishNewMessage(savedMessage.channelId, savedMessage);
   }
 
+  async notifyLessonCancelled(params: {
+    studentId: string;
+    teacherUserId: string;
+    bookingId: string;
+    lessonStartAt: Date;
+  }) {
+    const savedMessage = await this.prisma.$transaction(async (tx) => {
+      const channel = await this.ensureDirectChannel(
+        tx,
+        params.studentId,
+        params.teacherUserId,
+        params.bookingId,
+      );
+
+      const data: Prisma.MessageUncheckedCreateInput = {
+        channelId: channel.id,
+        senderId: null,
+        content: `Lesson cancelled.\n- Date & Time: ${params.lessonStartAt.toLocaleString('en-US')}`,
+        type: MessageType.SYSTEM,
+      };
+
+      const message = await tx.message.create({ data });
+
+      await tx.channel.update({
+        where: { id: channel.id },
+        data: { lastMessageAt: message.createdAt },
+      });
+
+      return message;
+    });
+
+    await this.incrementChannelUnread(
+      savedMessage.channelId,
+      savedMessage.senderId,
+    );
+    await this.publishNewMessage(savedMessage.channelId, savedMessage);
+  }
+
   async getChatList(userId: string) {
     const channels = await this.findUserChannels(userId);
 
